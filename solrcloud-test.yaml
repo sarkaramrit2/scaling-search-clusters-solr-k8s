@@ -1,0 +1,3462 @@
+---
+# Source: solr-base/templates/solr-poddisruptionbudget.yaml
+apiVersion: policy/v1beta1
+kind: PodDisruptionBudget
+metadata:
+  name: solr-pdb-test
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      app: solr-test
+  maxUnavailable: 1
+---
+# Source: solr-base/templates/zk-poddisruptionbudget.yaml
+apiVersion: policy/v1beta1
+kind: PodDisruptionBudget
+metadata:
+  name: zk-pdb-test
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      app: zk-test
+  maxUnavailable: 1
+---
+# Source: solr-base/templates/solr-service-account.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: solr-test
+  namespace: default
+  labels:
+    app: solr-test
+---
+# Source: solr-base/templates/solr-exporter-configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  creationTimestamp: 2016-02-18T18:52:05Z
+  name: solr-exporter-config
+  namespace: default
+  resourceVersion: "516"
+  uid: b4952dc3-d670-11e5-8cd0-68f728db1985
+data:
+  log4j2-console.xml: |
+    <?xml version="1.0" encoding="UTF-8"?>
+    <!--
+      Licensed to the Apache Software Foundation (ASF) under one or more
+      contributor license agreements.  See the NOTICE file distributed with
+      this work for additional information regarding copyright ownership.
+      The ASF licenses this file to You under the Apache License, Version 2.0
+      (the "License"); you may not use this file except in compliance with
+      the License.  You may obtain a copy of the License at
+
+          http://www.apache.org/licenses/LICENSE-2.0
+
+      Unless required by applicable law or agreed to in writing, software
+      distributed under the License is distributed on an "AS IS" BASIS,
+      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+      See the License for the specific language governing permissions and
+      limitations under the License.
+      -->
+
+    <!-- Use this file for logging exlusively to the console, useful for
+         some development tasks. Should not be used for production -->
+    <Configuration>
+      <Appenders>
+        <Console name="STDERR" target="SYSTEM_ERR">
+          <PatternLayout>
+            <Pattern>
+              %-5p - %d{yyyy-MM-dd HH:mm:ss.SSS}; %c; %m%n
+            </Pattern>
+          </PatternLayout>
+        </Console>
+      </Appenders>
+      <Loggers>
+        <Logger name="org.apache.zookeeper" level="WARN"/>
+        <Logger name="org.apache.hadoop" level="WARN"/>
+
+        <Root level="INFO">
+          <AppenderRef ref="STDERR"/>
+        </Root>
+      </Loggers>
+    </Configuration>
+  solr-exporter-config.xml: |
+    <?xml version="1.0" encoding="UTF-8" ?>
+    <!--
+    Licensed to the Apache Software Foundation (ASF) under one or more
+    contributor license agreements.  See the NOTICE file distributed with
+    this work for additional information regarding copyright ownership.
+    The ASF licenses this file to You under the Apache License, Version 2.0
+    (the "License"); you may not use this file except in compliance with
+    the License.  You may obtain a copy of the License at
+
+        http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing, software
+    distributed under the License is distributed on an "AS IS" BASIS,
+    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    See the License for the specific language governing permissions and
+    limitations under the License.
+    -->
+
+    <config>
+
+        <rules>
+
+            <ping>
+            <lst name="request">
+                <lst name="query">
+                <str name="path">/admin/ping</str>
+                </lst>
+                <arr name="jsonQueries">
+                <str>
+                    . as $object | $object |
+                    (if $object.status == "OK" then 1.0 else 0.0 end) as $value |
+                    {
+                    name         : "solr_ping",
+                    type         : "GAUGE",
+                    help         : "See following URL: https://lucene.apache.org/solr/guide/ping.html",
+                    label_names  : [],
+                    label_values : [],
+                    value        : $value
+                    }
+                </str>
+                </arr>
+            </lst>
+            </ping>
+
+            <metrics>
+            <lst name="request">
+                <lst name="query">
+                <str name="path">/admin/metrics</str>
+                <lst name="params">
+                    <str name="group">all</str>
+                    <str name="type">all</str>
+                    <str name="prefix"></str>
+                    <str name="property"></str>
+                </lst>
+                </lst>
+                <arr name="jsonQueries">
+                <!--
+                    jvm metrics
+                -->
+                <str>
+                    .metrics["solr.jvm"] | to_entries | .[] | select(.key | startswith("gc.")) | select(.key | endswith(".count")) as $object |
+                    $object.key | split(".")[1] as $item |
+                    $object.value as $value |
+                    {
+                    name         : "solr_metrics_jvm_gc_total",
+                    type         : "COUNTER",
+                    help         : "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names  : ["item"],
+                    label_values : [$item],
+                    value        : $value
+                    }
+                </str>
+                <str>
+                    .metrics["solr.jvm"] | to_entries | .[] | select(.key | startswith("gc.")) | select(.key | endswith(".time")) as $object |
+                    $object.key | split(".")[1] as $item |
+                    ($object.value / 1000) as $value |
+                    {
+                    name         : "solr_metrics_jvm_gc_seconds_total",
+                    type         : "COUNTER",
+                    help         : "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names  : ["item"],
+                    label_values : [$item],
+                    value        : $value
+                    }
+                </str>
+                <str>
+                    .metrics["solr.jvm"] | to_entries | .[] | select(.key | startswith("memory.heap.")) | select(.key | endswith(".usage") | not) as $object |
+                    $object.key | split(".") | last as $item |
+                    $object.value as $value |
+                    {
+                    name         : "solr_metrics_jvm_memory_heap_bytes",
+                    type         : "GAUGE",
+                    help         : "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names  : ["item"],
+                    label_values : [$item],
+                    value        : $value
+                    }
+                </str>
+                <str>
+                    .metrics["solr.jvm"] | to_entries | .[] | select(.key == "os.committedVirtualMemorySize" or .key == "os.freePhysicalMemorySize" or .key == "os.freeSwapSpaceSize" or .key =="os.totalPhysicalMemorySize" or .key == "os.totalSwapSpaceSize") as $object |
+                    $object.key | split(".") | last as $item |
+                    $object.value as $value |
+                    {
+                    name         : "solr_metrics_jvm_os_memory_bytes",
+                    type         : "GAUGE",
+                    help         : "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names  : ["item"],
+                    label_values : [$item],
+                    value        : $value
+                    }
+                </str>
+                <str>
+                    .metrics["solr.jvm"] | to_entries | .[] | select(.key == "os.processCpuLoad" or .key == "os.systemCpuLoad") as $object |
+                    $object.key | split(".") | last as $item |
+                    $object.value as $value |
+                    {
+                    name         : "solr_metrics_jvm_os_cpu_load",
+                    type         : "GAUGE",
+                    help         : "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names  : ["item"],
+                    label_values : [$item],
+                    value        : $value
+                    }
+                </str>
+                <str>
+                    .metrics["solr.jvm"] | to_entries | .[] | select(.key == "os.processCpuTime") as $object |
+                    ($object.value / 1000.0) as $value |
+                    {
+                    name         : "solr_metrics_jvm_os_cpu_time_seconds",
+                    type         : "COUNTER",
+                    help         : "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names  : ["item"],
+                    label_values : ["processCpuTime"],
+                    value        : $value
+                    }
+                </str>
+                <str>
+                    .metrics["solr.jvm"] | to_entries | .[] | select(.key == "os.systemLoadAverage") as $object |
+                    $object.value as $value |
+                    {
+                    name         : "solr_metrics_jvm_os_load_average",
+                    type         : "GAUGE",
+                    help         : "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names  : ["item"],
+                    label_values : ["systemLoadAverage"],
+                    value        : $value
+                    }
+                </str>
+                <str>
+                    .metrics["solr.node"] | to_entries | .[] | select(.key | startswith("CONTAINER.fs.coreRoot.")) | select(.key | endswith(".totalSpace") or endswith(".usableSpace")) as $object |
+                    $object.key | split(".") as $key_items |
+                    $key_items | length as $label_len |
+                    $key_items[0] as $category |
+                    $key_items[3] as $item |
+                    $object.value as $value |
+                    {
+                    name         : "solr_metrics_node_core_root_fs_bytes",
+                    type         : "GAUGE",
+                    help         : "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names  : ["category", "item"],
+                    label_values : [$category, $item],
+                    value        : $value
+                    }
+                </str>
+
+                <!--
+                    core metrics
+                -->
+                <str>
+                    .metrics | to_entries | .[] | select(.key | startswith("solr.core.")) as $parent |
+                    $parent.key | split(".") as $parent_key_items |
+                    $parent_key_items | length as $parent_key_item_len |
+                    (if $parent_key_item_len == 3 then $parent_key_items[2] else "" end) as $core |
+                    (if $parent_key_item_len == 5 then $parent_key_items[2] else "" end) as $collection |
+                    (if $parent_key_item_len == 5 then $parent_key_items[3] else "" end) as $shard |
+                    (if $parent_key_item_len == 5 then $parent_key_items[4] else "" end) as $replica |
+                    (if $parent_key_item_len == 5 then ($collection + "_" + $shard + "_" + $replica) else $core end) as $core |
+                    $parent.value | to_entries | .[] | select(.key | endswith(".clientErrors")) as $object |
+                    $object.key | split(".")[0] as $category |
+                    $object.key | split(".")[1] as $handler |
+                    select($handler | startswith("/")) |
+                    $object.value.count as $value |
+                    if $parent_key_item_len == 3 then
+                    {
+                    name: "solr_metrics_core_client_errors_total",
+                    type: "COUNTER",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "handler", "core"],
+                    label_values: [$category, $handler, $core],
+                    value: $value
+                    }
+                    else
+                    {
+                    name: "solr_metrics_core_client_errors_total",
+                    type: "COUNTER",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "handler", "core", "collection", "shard", "replica"],
+                    label_values: [$category, $handler, $core, $collection, $shard, $replica],
+                    value: $value
+                    }
+                    end
+                </str>
+                <str>
+                    .metrics | to_entries | .[] | select(.key | startswith("solr.core.")) as $parent |
+                    $parent.key | split(".") as $parent_key_items |
+                    $parent_key_items | length as $parent_key_item_len |
+                    (if $parent_key_item_len == 3 then $parent_key_items[2] else "" end) as $core |
+                    (if $parent_key_item_len == 5 then $parent_key_items[2] else "" end) as $collection |
+                    (if $parent_key_item_len == 5 then $parent_key_items[3] else "" end) as $shard |
+                    (if $parent_key_item_len == 5 then $parent_key_items[4] else "" end) as $replica |
+                    (if $parent_key_item_len == 5 then ($collection + "_" + $shard + "_" + $replica) else $core end) as $core |
+                    $parent.value | to_entries | .[] | select(.key | endswith(".errors")) | select (.value | type == "object") as $object |
+                    $object.key | split(".")[0] as $category |
+                    $object.key | split(".")[1] as $handler |
+                    select($handler | startswith("/")) |
+                    $object.value.count as $value |
+                    if $parent_key_item_len == 3 then
+                    {
+                    name: "solr_metrics_core_errors_total",
+                    type: "COUNTER",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "handler", "core"],
+                    label_values: [$category, $handler, $core],
+                    value: $value
+                    }
+                    else
+                    {
+                    name: "solr_metrics_core_errors_total",
+                    type: "COUNTER",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "handler", "core", "collection", "shard", "replica"],
+                    label_values: [$category, $handler, $core, $collection, $shard, $replica],
+                    value: $value
+                    }
+                    end
+                </str>
+                <str>
+                    .metrics | to_entries | .[] | select(.key | startswith("solr.core.")) as $parent |
+                    $parent.key | split(".") as $parent_key_items |
+                    $parent_key_items | length as $parent_key_item_len |
+                    (if $parent_key_item_len == 3 then $parent_key_items[2] else "" end) as $core |
+                    (if $parent_key_item_len == 5 then $parent_key_items[2] else "" end) as $collection |
+                    (if $parent_key_item_len == 5 then $parent_key_items[3] else "" end) as $shard |
+                    (if $parent_key_item_len == 5 then $parent_key_items[4] else "" end) as $replica |
+                    (if $parent_key_item_len == 5 then ($collection + "_" + $shard + "_" + $replica) else $core end) as $core |
+                    $parent.value | to_entries | .[] | select(.key | endswith(".distrib.requestTimes")) as $object |
+                    $object.key | split(".")[0] as $category |
+                    $object.key | split(".")[1] as $handler |
+                    $object.value | to_entries | .[] | select(.key | endswith("Rate")) as $target |
+                    $target.key as $item |
+                    $target.value as $value |
+                    if $parent_key_item_len == 3 then
+                    {
+                    name: "solr_metrics_core_distrib_one_minute_rate",
+                    type: "COUNTER",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "handler", "core", "item"],
+                    label_values: [$category, $handler, $core, $item],
+                    value: $value
+                    }
+                    else
+                    {
+                    name: "solr_metrics_core_distrib_one_minute_rate",
+                    type: "COUNTER",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "handler", "core", "collection", "shard", "replica", "item"],
+                    label_values: [$category, $handler, $core, $collection, $shard, $replica, $item],
+                    value: $value
+                    }
+                    end
+                </str>
+                <str>
+                    .metrics | to_entries | .[] | select(.key | startswith("solr.core.")) as $parent |
+                    $parent.key | split(".") as $parent_key_items |
+                    $parent_key_items | length as $parent_key_item_len |
+                    (if $parent_key_item_len == 3 then $parent_key_items[2] else "" end) as $core |
+                    (if $parent_key_item_len == 5 then $parent_key_items[2] else "" end) as $collection |
+                    (if $parent_key_item_len == 5 then $parent_key_items[3] else "" end) as $shard |
+                    (if $parent_key_item_len == 5 then $parent_key_items[4] else "" end) as $replica |
+                    (if $parent_key_item_len == 5 then ($collection + "_" + $shard + "_" + $replica) else $core end) as $core |
+                    $parent.value | to_entries | .[] | select(.key | endswith("QUERY./select.distrib.requestTimes")) as $object |
+                    $object.key | split(".")[0] as $category |
+                    $object.key | split(".")[1] as $handler | 
+                    $object.value | to_entries | .[] | select(.key | endswith("1minRate")) as $target |
+                    $target.key as $item |
+                    $target.value as $value |
+                    if $parent_key_item_len == 3 then
+                    {
+                    name: "solr_metrics_core_distrib_select_one_minute_rate",
+                    type: "COUNTER",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "handler", "core", "item"],
+                    label_values: [$category, $handler, $core, $item],
+                    value: $value
+                    }
+                    else
+                    {
+                    name: "solr_metrics_core_distrib_select_one_minute_rate",
+                    type: "COUNTER",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "handler", "core", "collection", "shard", "replica", "item"],
+                    label_values: [$category, $handler, $core, $collection, $shard, $replica, $item],
+                    value: $value
+                    }
+                    end
+                </str>                
+                <str>
+                    .metrics | to_entries | .[] | select(.key | startswith("solr.core.")) as $parent |
+                    $parent.key | split(".") as $parent_key_items |
+                    $parent_key_items | length as $parent_key_item_len |
+                    (if $parent_key_item_len == 3 then $parent_key_items[2] else "" end) as $core |
+                    (if $parent_key_item_len == 5 then $parent_key_items[2] else "" end) as $collection |
+                    (if $parent_key_item_len == 5 then $parent_key_items[3] else "" end) as $shard |
+                    (if $parent_key_item_len == 5 then $parent_key_items[4] else "" end) as $replica |
+                    (if $parent_key_item_len == 5 then ($collection + "_" + $shard + "_" + $replica) else $core end) as $core |
+                    $parent.value | to_entries | .[] | select(.key | endswith(".distrib.requestTimes")) as $object |
+                    $object.key | split(".")[0] as $category |
+                    $object.key | split(".")[1] as $handler |
+                    $object.value | to_entries | .[] | select(.key | endswith("_ms")) as $target |
+                    $target.key as $item |
+                    $target.value as $value |
+                    if $parent_key_item_len == 3 then
+                    {
+                    name: "solr_metrics_core_distrib_latency",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "handler", "core", "item"],
+                    label_values: [$category, $handler, $core, $item],
+                    value: $value
+                    }
+                    else
+                    {
+                    name: "solr_metrics_core_distrib_latency",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "handler", "collection", "shard", "replica", "core", "item"],
+                    label_values: [$category, $handler, $collection, $shard, $replica, $core, $item],
+                    value: $value
+                    }
+                    end
+                </str>
+                <str>
+                    .metrics | to_entries | .[] | select(.key | startswith("solr.core.")) as $parent |
+                    $parent.key | split(".") as $parent_key_items |
+                    $parent_key_items | length as $parent_key_item_len |
+                    (if $parent_key_item_len == 3 then $parent_key_items[2] else "" end) as $core |
+                    (if $parent_key_item_len == 5 then $parent_key_items[2] else "" end) as $collection |
+                    (if $parent_key_item_len == 5 then $parent_key_items[3] else "" end) as $shard |
+                    (if $parent_key_item_len == 5 then $parent_key_items[4] else "" end) as $replica |
+                    (if $parent_key_item_len == 5 then ($collection + "_" + $shard + "_" + $replica) else $core end) as $core |
+                    $parent.value | to_entries | .[] | select(.key | endswith(".serverErrors")) | select (.value | type == "object") as $object |
+                    $object.key | split(".")[0] as $category |
+                    $object.key | split(".")[1] as $handler |
+                    select($handler | startswith("/")) |
+                    $object.value.count as $value |
+                    if $parent_key_item_len == 3 then
+                    {
+                    name: "solr_metrics_core_server_errors_total",
+                    type: "COUNTER",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "handler", "core"],
+                    label_values: [$category, $handler, $core],
+                    value: $value
+                    }
+                    else
+                    {
+                    name: "solr_metrics_core_server_errors_total",
+                    type: "COUNTER",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "handler", "core", "collection", "shard", "replica"],
+                    label_values: [$category, $handler, $core, $collection, $shard, $replica],
+                    value: $value
+                    }
+                    end
+                </str>
+                <str>
+                    .metrics | to_entries | .[] | select(.key | startswith("solr.core.")) as $parent |
+                    $parent.key | split(".") as $parent_key_items |
+                    $parent_key_items | length as $parent_key_item_len |
+                    (if $parent_key_item_len == 3 then $parent_key_items[2] else "" end) as $core |
+                    (if $parent_key_item_len == 5 then $parent_key_items[2] else "" end) as $collection |
+                    (if $parent_key_item_len == 5 then $parent_key_items[3] else "" end) as $shard |
+                    (if $parent_key_item_len == 5 then $parent_key_items[4] else "" end) as $replica |
+                    (if $parent_key_item_len == 5 then ($collection + "_" + $shard + "_" + $replica) else $core end) as $core |
+                    $parent.value | to_entries | .[] | select(.key | endswith(".timeouts")) | select (.value | type == "object") as $object |
+                    $object.key | split(".")[0] as $category |
+                    $object.key | split(".")[1] as $handler |
+                    select($handler | startswith("/")) |
+                    $object.value.count as $value |
+                    if $parent_key_item_len == 3 then
+                    {
+                    name: "solr_metrics_core_timeouts_total",
+                    type: "COUNTER",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "handler", "core"],
+                    label_values: [$category, $handler, $core],
+                    value: $value
+                    }
+                    else
+                    {
+                    name: "solr_metrics_core_timeouts_total",
+                    type: "COUNTER",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "handler", "core", "collection", "shard", "replica"],
+                    label_values: [$category, $handler, $core, $collection, $shard, $replica],
+                    value: $value
+                    }
+                    end
+                </str>
+                <str>
+                    .metrics | to_entries | .[] | select(.key | startswith("solr.core.")) as $parent |
+                    $parent.key | split(".") as $parent_key_items |
+                    $parent_key_items | length as $parent_key_item_len |
+                    (if $parent_key_item_len == 3 then $parent_key_items[2] else "" end) as $core |
+                    (if $parent_key_item_len == 5 then $parent_key_items[2] else "" end) as $collection |
+                    (if $parent_key_item_len == 5 then $parent_key_items[3] else "" end) as $shard |
+                    (if $parent_key_item_len == 5 then $parent_key_items[4] else "" end) as $replica |
+                    (if $parent_key_item_len == 5 then ($collection + "_" + $shard + "_" + $replica) else $core end) as $core |
+                    $parent.value | to_entries | .[] | select(.key == "INDEX.sizeInBytes") as $object |
+                    $object.key | split(".")[0] as $category |
+                    $object.value as $value |
+                    if $parent_key_item_len == 3 then
+                    {
+                    name: "solr_metrics_core_index_size_bytes",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "core"],
+                    label_values: [$category, $core],
+                    value: $value
+                    }
+                    else
+                    {
+                    name: "solr_metrics_core_index_size_bytes",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "core", "collection", "shard", "replica"],
+                    label_values: [$category, $core, $collection, $shard, $replica],
+                    value: $value
+                    }
+                    end
+                </str>
+                <str>
+                    .metrics | to_entries | .[] | select(.key | startswith("solr.core.")) as $parent |
+                    $parent.key | split(".") as $parent_key_items |
+                    $parent_key_items | length as $parent_key_item_len |
+                    (if $parent_key_item_len == 3 then $parent_key_items[2] else "" end) as $core |
+                    (if $parent_key_item_len == 5 then $parent_key_items[2] else "" end) as $collection |
+                    (if $parent_key_item_len == 5 then $parent_key_items[3] else "" end) as $shard |
+                    (if $parent_key_item_len == 5 then $parent_key_items[4] else "" end) as $replica |
+                    (if $parent_key_item_len == 5 then ($collection + "_" + $shard + "_" + $replica) else $core end) as $core |
+                    $parent.value | to_entries | .[] | select(.key == "SEARCHER.searcher.deletedDocs" or .key == "SEARCHER.searcher.maxDoc" or .key == "SEARCHER.searcher.numDocs") as $object |
+                    $object.key | split(".")[0] as $category |
+                    $object.key | split(".")[2] as $item |
+                    $object.value as $value |
+                    if $parent_key_item_len == 3 then
+                    {
+                    name: "solr_metrics_core_searcher_documents",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "core", "item"],
+                    label_values: [$category, $core, $item],
+                    value: $value
+                    }
+                    else
+                    {
+                    name: "solr_metrics_core_searcher_documents",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "core", "collection", "shard", "replica", "item"],
+                    label_values: [$category, $core, $collection, $shard, $replica, $item],
+                    value: $value
+                    }
+                    end
+                </str>
+                <str>
+                    .metrics | to_entries | .[] | select(.key | startswith("solr.core.")) as $parent |
+                    $parent.key | split(".") as $parent_key_items |
+                    $parent_key_items | length as $parent_key_item_len |
+                    (if $parent_key_item_len == 3 then $parent_key_items[2] else "" end) as $core |
+                    (if $parent_key_item_len == 5 then $parent_key_items[2] else "" end) as $collection |
+                    (if $parent_key_item_len == 5 then $parent_key_items[3] else "" end) as $shard |
+                    (if $parent_key_item_len == 5 then $parent_key_items[4] else "" end) as $replica |
+                    (if $parent_key_item_len == 5 then ($collection + "_" + $shard + "_" + $replica) else $core end) as $core |
+                    $parent.value | to_entries | .[] | select(.key == "TLOG.replay.ops") as $object |
+                    $object.value | to_entries | .[] | . as $target |
+                    $target.key as $item |
+                    $target.value as $value |
+                    if $parent_key_item_len == 3 then
+                    {
+                    name: "solr_metrics_core_tlog_replay",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["core", "item"],
+                    label_values: [$core, $item],
+                    value: $value
+                    }
+                    else
+                    {
+                    name: "solr_metrics_core_tlog_replay",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["collection", "shard", "replica", "core", "item"],
+                    label_values: [$collection, $shard, $replica, $core, $item],
+                    value: $value
+                    }
+                    end
+                </str>
+                <str>
+                    .metrics | to_entries | .[] | select(.key | startswith("solr.core.")) as $parent |
+                    $parent.key | split(".") as $parent_key_items |
+                    $parent_key_items | length as $parent_key_item_len |
+                    (if $parent_key_item_len == 3 then $parent_key_items[2] else "" end) as $core |
+                    (if $parent_key_item_len == 5 then $parent_key_items[2] else "" end) as $collection |
+                    (if $parent_key_item_len == 5 then $parent_key_items[3] else "" end) as $shard |
+                    (if $parent_key_item_len == 5 then $parent_key_items[4] else "" end) as $replica |
+                    (if $parent_key_item_len == 5 then ($collection + "_" + $shard + "_" + $replica) else $core end) as $core |
+                    $parent.value | to_entries | .[] | select(.key == "TLOG.replay.remaining.bytes") as $object |
+                    $object.value as $value |
+                    if $parent_key_item_len == 3 then
+                    {
+                    name: "solr_metrics_core_tlog_replay_rem_bytes",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["core"],
+                    label_values: [$core],
+                    value: $value
+                    }
+                    else
+                    {
+                    name: "solr_metrics_core_tlog_replay_rem_bytes",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["collection", "shard", "replica", "core"],
+                    label_values: [$collection, $shard, $replica, $core],
+                    value: $value
+                    }
+                    end
+                </str>
+                <str>
+                    .metrics | to_entries | .[] | select(.key | startswith("solr.core.")) as $parent |
+                    $parent.key | split(".") as $parent_key_items |
+                    $parent_key_items | length as $parent_key_item_len |
+                    (if $parent_key_item_len == 3 then $parent_key_items[2] else "" end) as $core |
+                    (if $parent_key_item_len == 5 then $parent_key_items[2] else "" end) as $collection |
+                    (if $parent_key_item_len == 5 then $parent_key_items[3] else "" end) as $shard |
+                    (if $parent_key_item_len == 5 then $parent_key_items[4] else "" end) as $replica |
+                    (if $parent_key_item_len == 5 then ($collection + "_" + $shard + "_" + $replica) else $core end) as $core |
+                    $parent.value | to_entries | .[] | select(.key == "TLOG.replay.remaining.logs") as $object |
+                    $object.value as $value |
+                    if $parent_key_item_len == 3 then
+                    {
+                    name: "solr_metrics_core_tlog_replay_rem_logs",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["core"],
+                    label_values: [$core],
+                    value: $value
+                    }
+                    else
+                    {
+                    name: "solr_metrics_core_tlog_replay_rem_logs",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["collection", "shard", "replica", "core"],
+                    label_values: [$collection, $shard, $replica, $core],
+                    value: $value
+                    }
+                    end
+                </str>
+                <str>
+                  .metrics | to_entries | .[] | select(.key | startswith("solr.core.")) as $parent |
+                  $parent.key | split(".") as $parent_key_items |
+                  $parent_key_items | length as $parent_key_item_len |
+                  (if $parent_key_item_len == 3 then $parent_key_items[2] else "" end) as $core |
+                  (if $parent_key_item_len == 5 then $parent_key_items[2] else "" end) as $collection |
+                  (if $parent_key_item_len == 5 then $parent_key_items[3] else "" end) as $shard |
+                  (if $parent_key_item_len == 5 then $parent_key_items[4] else "" end) as $replica |
+                  (if $parent_key_item_len == 5 then ($collection + "_" + $shard + "_" + $replica) else $core end) as $core |
+                  $parent.value | to_entries | .[] | select(.key | startswith("CACHE.searcher.")) | select (.key | endswith("documentCache") or endswith("fieldValueCache") or endswith("filterCache") or endswith("perSegFilter") or endswith("queryResultCache")) as $object |
+                  $object.key | split(".")[0] as $category |
+                  $object.key | split(".")[2] as $type |
+                  $object.value | to_entries | .[] | select(.key == "lookups" or .key == "hits" or .key == "size" or .key == "evictions" or .key == "inserts") as $target |
+                  $target.key as $item |
+                  $target.value as $value |
+                  if $parent_key_item_len == 3 then
+                  {
+                    name: "solr_metrics_core_searcher_cache",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "core", "type", "item"],
+                    label_values: [$category, $core, $type, $item],
+                    value: $value
+                  }
+                  else
+                  {
+                    name: "solr_metrics_core_searcher_cache",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "core", "collection", "shard", "replica", "type", "item"],
+                    label_values: [$category, $core, $collection, $shard, $replica, $type, $item],
+                    value: $value
+                  }
+                  end
+                </str>
+                <str>
+                  .metrics | to_entries | .[] | select(.key | startswith("solr.core.")) as $parent |
+                  $parent.key | split(".") as $parent_key_items |
+                  $parent_key_items | length as $parent_key_item_len |
+                  (if $parent_key_item_len == 3 then $parent_key_items[2] else "" end) as $core |
+                  (if $parent_key_item_len == 5 then $parent_key_items[2] else "" end) as $collection |
+                  (if $parent_key_item_len == 5 then $parent_key_items[3] else "" end) as $shard |
+                  (if $parent_key_item_len == 5 then $parent_key_items[4] else "" end) as $replica |
+                  (if $parent_key_item_len == 5 then ($collection + "_" + $shard + "_" + $replica) else $core end) as $core |
+                  $parent.value | to_entries | .[] | select(.key | startswith("CACHE.searcher.")) | select (.key | endswith("documentCache") or endswith("fieldValueCache") or endswith("filterCache") or endswith("perSegFilter") or endswith("queryResultCache")) as $object |
+                  $object.key | split(".")[0] as $category |
+                  $object.key | split(".")[2] as $type |
+                  $object.value | to_entries | .[] | select(.key == "hitratio") as $target |
+                  $target.key as $item |
+                  $target.value as $value |
+                  if $parent_key_item_len == 3 then
+                  {
+                    name: "solr_metrics_core_searcher_cache_hit_ratio",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "core", "type", "item"],
+                    label_values: [$category, $core, $type, $item],
+                    value: $value
+                  }
+                  else
+                  {
+                    name: "solr_metrics_core_searcher_cache_hit_ratio",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "core", "collection", "shard", "replica", "type", "item"],
+                    label_values: [$category, $core, $collection, $shard, $replica, $type, $item],
+                    value: $value
+                  }
+                  end
+                </str>
+                <str>
+                  .metrics | to_entries | .[] | select(.key | startswith("solr.core.")) as $parent |
+                  $parent.key | split(".") as $parent_key_items |
+                  $parent_key_items | length as $parent_key_item_len |
+                  (if $parent_key_item_len == 3 then $parent_key_items[2] else "" end) as $core |
+                  (if $parent_key_item_len == 5 then $parent_key_items[2] else "" end) as $collection |
+                  (if $parent_key_item_len == 5 then $parent_key_items[3] else "" end) as $shard |
+                  (if $parent_key_item_len == 5 then $parent_key_items[4] else "" end) as $replica |
+                  (if $parent_key_item_len == 5 then ($collection + "_" + $shard + "_" + $replica) else $core end) as $core |
+                  $parent.value | to_entries | .[] | select(.key | startswith("CACHE.searcher.")) | select (.key | endswith("documentCache") or endswith("fieldValueCache") or endswith("filterCache") or endswith("perSegFilter") or endswith("queryResultCache")) as $object |
+                  $object.key | split(".")[0] as $category |
+                  $object.key | split(".")[2] as $type |
+                  $object.value | to_entries | .[] | select(.key == "warmupTime") as $target |
+                  $target.key as $item |
+                  ($target.value / 1000) as $value |
+                  if $parent_key_item_len == 3 then
+                  {
+                    name: "solr_metrics_core_searcher_cache_warmup_time",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "core", "type", "item"],
+                    label_values: [$category, $core, $type, $item],
+                    value: $value
+                  }
+                  else
+                  {
+                    name: "solr_metrics_core_searcher_cache_warmup_time",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "core", "collection", "shard", "replica", "type", "item"],
+                    label_values: [$category, $core, $collection, $shard, $replica, $type, $item],
+                    value: $value
+                  }
+                  end
+                </str>
+                <str>
+                  .metrics | to_entries | .[] | select(.key | startswith("solr.core.")) as $parent |
+                  $parent.key | split(".") as $parent_key_items |
+                  $parent_key_items | length as $parent_key_item_len |
+                  (if $parent_key_item_len == 3 then $parent_key_items[2] else "" end) as $core |
+                  (if $parent_key_item_len == 5 then $parent_key_items[2] else "" end) as $collection |
+                  (if $parent_key_item_len == 5 then $parent_key_items[3] else "" end) as $shard |
+                  (if $parent_key_item_len == 5 then $parent_key_items[4] else "" end) as $replica |
+                  (if $parent_key_item_len == 5 then ($collection + "_" + $shard + "_" + $replica) else $core end) as $core |
+                  $parent.value | to_entries | .[] | select(.key | startswith("CACHE.searcher.")) | select (.key | endswith("documentCache") or endswith("fieldValueCache") or endswith("filterCache") or endswith("perSegFilter") or endswith("queryResultCache")) as $object |
+                  $object.key | split(".")[0] as $category |
+                  $object.key | split(".")[2] as $type |
+                  $object.value | to_entries | .[] | select(.key == "cumulative_lookups" or .key == "cumulative_hits" or .key == "cumulative_evictions" or .key == "cumulative_inserts") as $target |
+                  $target.key as $item |
+                  $target.value as $value |
+                  if $parent_key_item_len == 3 then
+                  {
+                    name: "solr_metrics_core_searcher_cumulative_cache",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "core", "type", "item"],
+                    label_values: [$category, $core, $type, $item],
+                    value: $value
+                  }
+                  else
+                  {
+                    name: "solr_metrics_core_searcher_cumulative_cache",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "core", "collection", "shard", "replica", "type", "item"],
+                    label_values: [$category, $core, $collection, $shard, $replica, $type, $item],
+                    value: $value
+                  }
+                  end
+                </str>
+                <str>
+                  .metrics | to_entries | .[] | select(.key | startswith("solr.core.")) as $parent |
+                  $parent.key | split(".") as $parent_key_items |
+                  $parent_key_items | length as $parent_key_item_len |
+                  (if $parent_key_item_len == 3 then $parent_key_items[2] else "" end) as $core |
+                  (if $parent_key_item_len == 5 then $parent_key_items[2] else "" end) as $collection |
+                  (if $parent_key_item_len == 5 then $parent_key_items[3] else "" end) as $shard |
+                  (if $parent_key_item_len == 5 then $parent_key_items[4] else "" end) as $replica |
+                  (if $parent_key_item_len == 5 then ($collection + "_" + $shard + "_" + $replica) else $core end) as $core |
+                  $parent.value | to_entries | .[] | select(.key | startswith("CACHE.searcher.")) | select (.key | endswith("documentCache") or endswith("fieldValueCache") or endswith("filterCache") or endswith("perSegFilter") or endswith("queryResultCache")) as $object |
+                  $object.key | split(".")[0] as $category |
+                  $object.key | split(".")[2] as $type |
+                  $object.value | to_entries | .[] | select(.key == "cumulative_hitratio") as $target |
+                  $target.key as $item |
+                  $target.value as $value |
+                  if $parent_key_item_len == 3 then
+                  {
+                    name: "solr_metrics_core_searcher_cumulative_cache_hit_ratio",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "core", "type", "item"],
+                    label_values: [$category, $core, $type, $item],
+                    value: $value
+                  }
+                  else
+                  {
+                    name: "solr_metrics_core_searcher_cumulative_cache_hit_ratio",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "core", "collection", "shard", "replica", "type", "item"],
+                    label_values: [$category, $core, $collection, $shard, $replica, $type, $item],
+                    value: $value
+                  }
+                  end
+                </str>
+                <str>
+                    .metrics | to_entries | .[] | select(.key | startswith("solr.core.")) as $parent |
+                    $parent.key | split(".") as $parent_key_items |
+                    $parent_key_items | length as $parent_key_item_len |
+                    (if $parent_key_item_len == 3 then $parent_key_items[2] else "" end) as $core |
+                    (if $parent_key_item_len == 5 then $parent_key_items[2] else "" end) as $collection |
+                    (if $parent_key_item_len == 5 then $parent_key_items[3] else "" end) as $shard |
+                    (if $parent_key_item_len == 5 then $parent_key_items[4] else "" end) as $replica |
+                    (if $parent_key_item_len == 5 then ($collection + "_" + $shard + "_" + $replica) else $core end) as $core |
+                    $parent.value | to_entries | .[] | select(.key == "REPLICATION./replication.indexVersion") as $object |
+                    $object.value as $value |
+                    if $parent_key_item_len == 3 then
+                    {
+                    name: "solr_metrics_core_replication_index_version",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["core"],
+                    label_values: [$core],
+                    value: $value
+                    }
+                    else
+                    {
+                    name: "solr_metrics_core_replication_index_version",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["collection", "shard", "replica", "core"],
+                    label_values: [$collection, $shard, $replica, $core],
+                    value: $value
+                    }
+                    end
+                </str>
+                <str>
+                    .metrics | to_entries | .[] | select(.key | startswith("solr.core.")) as $parent |
+                    $parent.key | split(".") as $parent_key_items |
+                    $parent_key_items | length as $parent_key_item_len |
+                    (if $parent_key_item_len == 3 then $parent_key_items[2] else "" end) as $core |
+                    (if $parent_key_item_len == 5 then $parent_key_items[2] else "" end) as $collection |
+                    (if $parent_key_item_len == 5 then $parent_key_items[3] else "" end) as $shard |
+                    (if $parent_key_item_len == 5 then $parent_key_items[4] else "" end) as $replica |
+                    (if $parent_key_item_len == 5 then ($collection + "_" + $shard + "_" + $replica) else $core end) as $core |
+                    $parent.value | to_entries | .[] | select(.key == "REPLICATION./replication.indexVersion") as $object |
+                    $object.value | split(",")[0] as $generation |
+                    $generation | split("=")[1] as $gen_value |
+                    if $parent_key_item_len == 3 then
+                    {
+                    name: "solr_metrics_core_replication_indexver_generation",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["core"],
+                    label_values: [$core],
+                    value: $gen_value
+                    }
+                    else
+                    {
+                    name: "solr_metrics_core_replication_indexver_generation",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["collection", "shard", "replica", "core"],
+                    label_values: [$collection, $shard, $replica, $core],
+                    value: $gen_value
+                    }
+                    end
+                </str>
+                <str>
+                    .metrics | to_entries | .[] | select(.key | startswith("solr.core.")) as $parent |
+                    $parent.key | split(".") as $parent_key_items |
+                    $parent_key_items | length as $parent_key_item_len |
+                    (if $parent_key_item_len == 3 then $parent_key_items[2] else "" end) as $core |
+                    (if $parent_key_item_len == 5 then $parent_key_items[2] else "" end) as $collection |
+                    (if $parent_key_item_len == 5 then $parent_key_items[3] else "" end) as $shard |
+                    (if $parent_key_item_len == 5 then $parent_key_items[4] else "" end) as $replica |
+                    (if $parent_key_item_len == 5 then ($collection + "_" + $shard + "_" + $replica) else $core end) as $core |
+                    $parent.value | to_entries | .[] | select(.key == "REPLICATION./replication.indexVersion") as $object |
+                    $object.value | split(",")[1] as $version |
+                    $version | split("=")[1] as $version_value |
+                    if $parent_key_item_len == 3 then
+                    {
+                    name: "solr_metrics_core_replication_indexver_version",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["core"],
+                    label_values: [$core],
+                    value: $version_value
+                    }
+                    else
+                    {
+                    name: "solr_metrics_core_replication_indexver_version",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["collection", "shard", "replica", "core"],
+                    label_values: [$collection, $shard, $replica, $core],
+                    value: $version_value
+                    }
+                    end
+                </str>
+                <str>
+                    .metrics | to_entries | .[] | select(.key | startswith("solr.core.")) as $parent |
+                    $parent.key | split(".") as $parent_key_items |
+                    $parent_key_items | length as $parent_key_item_len |
+                    (if $parent_key_item_len == 3 then $parent_key_items[2] else "" end) as $core |
+                    (if $parent_key_item_len == 5 then $parent_key_items[2] else "" end) as $collection |
+                    (if $parent_key_item_len == 5 then $parent_key_items[3] else "" end) as $shard |
+                    (if $parent_key_item_len == 5 then $parent_key_items[4] else "" end) as $replica |
+                    (if $parent_key_item_len == 5 then ($collection + "_" + $shard + "_" + $replica) else $core end) as $core |
+                    $parent.value | to_entries | .[] | select(.key == "REPLICATION./replication.generation") as $object |
+                    $object.value as $value |
+                    if $parent_key_item_len == 3 then
+                    {
+                    name: "solr_metrics_core_replication_generation",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["core"],
+                    label_values: [$core],
+                    value: $value
+                    }
+                    else
+                    {
+                    name: "solr_metrics_core_replication_generation",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["collection", "shard", "replica", "core"],
+                    label_values: [$collection, $shard, $replica, $core],
+                    value: $value
+                    }
+                    end
+                </str>
+                <str>
+                    .metrics | to_entries | .[] | select(.key | startswith("solr.core.")) as $parent |
+                    $parent.key | split(".") as $parent_key_items |
+                    $parent_key_items | length as $parent_key_item_len |
+                    (if $parent_key_item_len == 3 then $parent_key_items[2] else "" end) as $core |
+                    (if $parent_key_item_len == 5 then $parent_key_items[2] else "" end) as $collection |
+                    (if $parent_key_item_len == 5 then $parent_key_items[3] else "" end) as $shard |
+                    (if $parent_key_item_len == 5 then $parent_key_items[4] else "" end) as $replica |
+                    (if $parent_key_item_len == 5 then ($collection + "_" + $shard + "_" + $replica) else $core end) as $core |
+                    $parent.value | to_entries | .[] | select(.key == "REPLICATION./replication.fetcher") as $object |
+                    $object.value | to_entries | .[] | select(.key == "lastCycleBytesDownloaded") as $target |
+                    $target.key as $item |
+                    $target.value as $value |
+                    if $parent_key_item_len == 3 then
+                    {
+                    name: "solr_metrics_core_replication_fetcher",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "core", "type", "item"],
+                    label_values: [$category, $core, $type, $item],
+                    value: $value
+                    }
+                    else
+                    {
+                    name: "solr_metrics_core_replication_fetcher",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "core", "collection", "shard", "replica", "type", "item"],
+                    label_values: [$category, $core, $collection, $shard, $replica, $type, $item],
+                    value: $value
+                    }
+                    end
+                </str>
+              </arr>
+            </lst>
+            </metrics>
+
+            <collections>
+            <lst name="request">
+                <lst name="query">
+                <str name="path">/admin/collections</str>
+                <lst name="params">
+                    <str name="action">CLUSTERSTATUS</str>
+                </lst>
+                </lst>
+                <arr name="jsonQueries">
+                <str>
+                    .cluster.collections | to_entries | .[] | . as $object |
+                    $object.key as $collection |
+                    $object.value.shards | to_entries | .[] | . as $shard_obj |
+                    $shard_obj.key as $shard |
+                    (if $shard_obj.value.state == "active" then 1.0 else 0.0 end) as $value |
+                    {
+                    name         : "solr_collections_shard_state",
+                    type         : "GAUGE",
+                    help         : "See following URL: https://lucene.apache.org/solr/guide/collections-api.html#clusterstatus",
+                    label_names  : ["collection","shard"],
+                    label_values : [$collection,$shard],
+                    value        : $value
+                    }
+                </str>
+                <str>
+                    .cluster.collections | to_entries | .[] | . as $object |
+                    $object.key as $collection |
+                    $object.value.shards | to_entries | .[] | . as $shard_obj |
+                    $shard_obj.key as $shard |
+                    $shard_obj.value.replicas | to_entries | .[] | . as $replica_obj |
+                    $replica_obj.key as $replica_name |
+                    $replica_obj.value.core as $core |
+                    $core[$collection + "_" + $shard + "_" | length:] as $replica |
+                    $replica_obj.value.base_url as $base_url |
+                    $replica_obj.value.node_name as $node_name |
+                    $replica_obj.value.type as $type |
+                    (if $replica_obj.value.state == "active" then 1.0 else 0.0 end) as $value |
+                    {
+                    name         : "solr_collections_replica_state",
+                    type         : "GAUGE",
+                    help         : "See following URL: https://lucene.apache.org/solr/guide/collections-api.html#clusterstatus",
+                    label_names  : ["collection", "shard", "replica", "replica_name", "core", "node_name", "type"],
+                    label_values : [$collection, $shard, $replica, $replica_name, $core, $node_name, $type],
+                    value        : $value
+                    }
+                </str>
+                </arr>
+            </lst>
+            </collections>
+        </rules>
+    </config>
+---
+# Source: solr-base/templates/zk-config.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: zk-test
+  namespace: default
+data:
+  ok: |
+    #!/bin/sh
+    zkServer.sh status $ZK_CONF_DIR/zoo.cfg
+
+  ready: |
+    #!/bin/sh
+    echo ruok | nc 127.0.0.1 ${1:-2181}
+
+  run: |
+    #!/bin/bash
+
+    set -a
+    ROOT=$(echo /apache-zookeeper-*)
+
+    ZK_USER=${ZK_USER:-"zookeeper"}
+    ZK_LOG_LEVEL=${ZK_LOG_LEVEL:-"INFO"}
+    ZK_DATA_DIR=${ZK_DATA_DIR:-"/data"}
+    ZK_DATA_LOG_DIR=${ZK_DATA_LOG_DIR:-"/data/log"}
+    ZK_CONF_DIR=${ZK_CONF_DIR:-"/conf"}
+    ZK_CLIENT_PORT=${ZK_CLIENT_PORT:-2181}
+    ZK_SERVER_PORT=${ZK_SERVER_PORT:-2888}
+    ZK_ELECTION_PORT=${ZK_ELECTION_PORT:-3888}
+    ZK_TICK_TIME=${ZK_TICK_TIME:-2000}
+    ZK_INIT_LIMIT=${ZK_INIT_LIMIT:-10}
+    ZK_SYNC_LIMIT=${ZK_SYNC_LIMIT:-5}
+    ZK_HEAP_SIZE=${ZK_HEAP_SIZE:-2G}
+    ZK_MAX_CLIENT_CNXNS=${ZK_MAX_CLIENT_CNXNS:-60}
+    ZK_MIN_SESSION_TIMEOUT=${ZK_MIN_SESSION_TIMEOUT:-$((ZK_TICK_TIME*2))}
+    ZK_MAX_SESSION_TIMEOUT=${ZK_MAX_SESSION_TIMEOUT:-$((ZK_TICK_TIME*20))}
+    ZK_SNAP_RETAIN_COUNT=${ZK_SNAP_RETAIN_COUNT:-3}
+    ZK_PURGE_INTERVAL=${ZK_PURGE_INTERVAL:-0}
+    ZOO_METRICS_PROVIDER_CLASS=${ZOO_METRICS_PROVIDER_CLASS:-"org.apache.zookeeper.metrics.prometheus.PrometheusMetricsProvider"}
+    ZOO_METRICS_PROVIDER_PORT=${ZOO_METRICS_PROVIDER_PORT:-7070}
+    ID_FILE="$ZK_DATA_DIR/myid"
+    ZK_CONFIG_FILE="$ZK_CONF_DIR/zoo.cfg"
+    LOG4J_PROPERTIES="$ZK_CONF_DIR/log4j.properties"
+    HOST=$(hostname)
+    DOMAIN=`hostname -d`
+    ZOOCFG=zoo.cfg
+    ZOOCFGDIR=$ZK_CONF_DIR
+    JVMFLAGS="-Xmx$ZK_HEAP_SIZE -Xms$ZK_HEAP_SIZE"
+
+    APPJAR=$(echo $ROOT/*jar)
+    CLASSPATH="${ROOT}/lib/*:${APPJAR}:${ZK_CONF_DIR}:"
+
+    if [[ $HOST =~ (.*)-([0-9]+)$ ]]; then
+        NAME=${BASH_REMATCH[1]}
+        ORD=${BASH_REMATCH[2]}
+        MY_ID=$((ORD+1))
+    else
+        echo "Failed to extract ordinal from hostname $HOST"
+        exit 1
+    fi
+
+    # create respective data and conf directories if not created
+    mkdir -p $ZK_DATA_DIR
+    mkdir -p $ZK_DATA_LOG_DIR
+    mkdir -p $ZK_CONF_DIR
+
+    # delete config files if created before
+    rm -rf $ID_FILE $ZK_CONFIG_FILE
+
+    sh -c "echo $MY_ID >> $ID_FILE"
+    sh -c "echo clientPort='$ZK_CLIENT_PORT' >> $ZK_CONFIG_FILE &&
+    echo dataDir='$ZK_DATA_DIR' >> $ZK_CONFIG_FILE &&
+    echo tickTime='$ZK_TICK_TIME' >> $ZK_CONFIG_FILE &&
+    echo initLimit='$ZK_INIT_LIMIT' >> $ZK_CONFIG_FILE &&
+    echo syncLimit='$ZK_SYNC_LIMIT' >> $ZK_CONFIG_FILE &&
+    echo maxClientCnxns='$ZK_MAX_CLIENT_CNXNS' >> $ZK_CONFIG_FILE &&
+    echo minSessionTimeout='$ZK_MIN_SESSION_TIMEOUT' >> $ZK_CONFIG_FILE &&
+    echo maxSessionTimeout='$ZK_MAX_SESSION_TIMEOUT' >> $ZK_CONFIG_FILE &&
+    echo autopurge.snapRetainCount='$ZK_SNAP_RETAIN_COUNT' >> $ZK_CONFIG_FILE &&
+    echo autopurge.purgeInterval='$ZK_PURGE_INTERVAL' >> $ZK_CONFIG_FILE &&
+    echo metricsProvider.className='$ZOO_METRICS_PROVIDER_CLASS' >> $ZK_CONFIG_FILE &&
+    echo metricsProvider.httpPort='$ZOO_METRICS_PROVIDER_PORT' >> $ZK_CONFIG_FILE &&
+    echo 4lw.commands.whitelist=* >> $ZK_CONFIG_FILE"
+
+    for (( i=1; i<=$ZK_REPLICAS; i++ ))
+    do
+        sh -c "echo 'server.$i=$NAME-$((i-1)).$DOMAIN:$ZK_SERVER_PORT:$ZK_ELECTION_PORT' >> $ZK_CONFIG_FILE"
+    done
+
+    cat $ZK_CONFIG_FILE
+
+    rm -f $LOG4J_PROPERTIES
+
+    echo "zookeeper.root.logger=$ZK_LOG_LEVEL, CONSOLE" >> $LOG4J_PROPERTIES
+    echo "zookeeper.console.threshold=$ZK_LOG_LEVEL" >> $LOG4J_PROPERTIES
+    echo "zookeeper.log.threshold=$ZK_LOG_LEVEL" >> $LOG4J_PROPERTIES
+    echo "zookeeper.log.dir=$ZK_DATA_LOG_DIR" >> $LOG4J_PROPERTIES
+    echo "zookeeper.log.file=zookeeper.log" >> $LOG4J_PROPERTIES
+    echo "zookeeper.log.maxfilesize=256MB" >> $LOG4J_PROPERTIES
+    echo "zookeeper.log.maxbackupindex=10" >> $LOG4J_PROPERTIES
+    echo "zookeeper.tracelog.dir=$ZK_DATA_LOG_DIR" >> $LOG4J_PROPERTIES
+    echo "zookeeper.tracelog.file=zookeeper_trace.log" >> $LOG4J_PROPERTIES
+    echo "log4j.rootLogger=\${zookeeper.root.logger}" >> $LOG4J_PROPERTIES
+    echo "log4j.appender.CONSOLE=org.apache.log4j.ConsoleAppender" >> $LOG4J_PROPERTIES
+    echo "log4j.appender.CONSOLE.Threshold=\${zookeeper.console.threshold}" >> $LOG4J_PROPERTIES
+    echo "log4j.appender.CONSOLE.layout=org.apache.log4j.PatternLayout" >> $LOG4J_PROPERTIES
+    echo "log4j.appender.CONSOLE.layout.ConversionPattern=%d{ISO8601} [myid:%X{myid}] - %-5p [%t:%C{1}@%L] - %m%n" >> $LOG4J_PROPERTIES
+
+
+    if [ -n "$JMXDISABLE" ]
+    then
+        MAIN=org.apache.zookeeper.server.quorum.QuorumPeerMain
+    else
+        MAIN="-Dcom.sun.management.jmxremote -Dcom.sun.management.jmxremote.port=$JMXPORT -Dcom.sun.management.jmxremote.authenticate=$JMXAUTH -Dcom.sun.management.jmxremote.ssl=$JMXSSL -Dzookeeper.jmx.log4j.disable=$JMXLOG4J org.apache.zookeeper.server.quorum.QuorumPeerMain"
+    fi
+
+    set -x
+    exec java -cp "$CLASSPATH" $JVMFLAGS $MAIN $ZK_CONFIG_FILE
+---
+# Source: solr-base/templates/solr-service-account.yaml
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1beta1
+metadata:
+  namespace: default
+  labels:
+    app: solr-test
+  name: solr-default
+rules:
+  - apiGroups: [""]
+    resources: [ "nodes" ]
+    verbs: [ "get" ]
+---
+# Source: solr-base/templates/solr-service-account.yaml
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1beta1
+metadata:
+  namespace: default
+  labels:
+    app: solr-test
+  name: solr-default
+subjects:
+  - kind: ServiceAccount
+    name: solr-test
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: solr-default
+  apiGroup: rbac.authorization.k8s.io
+---
+# Source: solr-base/templates/apiVersion: v1.yml
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/component: prometheus
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/part-of: kube-prometheus
+    app.kubernetes.io/version: 2.27.1
+    prometheus: k8s
+  name: prometheus-k8s
+  namespace: monitoring
+spec:
+  type: LoadBalancer
+  ports:
+    - port: 9090
+      targetPort: 9090
+  selector:
+    app: prometheus
+    app.kubernetes.io/component: prometheus
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/part-of: kube-prometheus
+    prometheus: k8s
+---
+# Source: solr-base/templates/solr-cs-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: solr-cs-test
+  namespace: default
+  labels:
+    app: solr-test
+spec:
+  ports:
+  - port: 80
+    name: http-solr-cs
+    targetPort: 8983
+  selector:
+    app: solr-test
+---
+# Source: solr-base/templates/solr-exporter-svc.yaml
+apiVersion: "v1"
+kind: "Service"
+metadata:
+  name: solr-exporter-test
+  namespace: default
+  labels:
+    app: solr-test
+  annotations:
+    prometheus.io/port: "9983"
+    prometheus.io/scrape: "true"
+spec:
+  type: "ClusterIP"
+  ports:
+  - port: 9983
+    name: "solr-client"
+  selector:
+    app: solr-test
+---
+# Source: solr-base/templates/solr-external-svc.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: solr-external-test
+  namespace: default
+  labels:
+    app: solr-test
+spec:
+  type: LoadBalancer
+  ports:
+    - port: 8983
+      targetPort: 8983  
+  selector:
+    app: solr-test
+---
+# Source: solr-base/templates/solr-hs-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: solr-hs-test
+  namespace: default
+  labels:
+    app: solr-test
+spec:
+  ports:
+  - port: 8983
+    name: http-solr-hs
+  # We want all pods in the StatefulSet to have their addresses published
+  # so that nodes can talk to each other before the readiness probes can pass
+  publishNotReadyAddresses: true
+  clusterIP: None
+  selector:
+    app: solr-test
+---
+# Source: solr-base/templates/zk-cs-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: zk-cs-test
+  namespace: default
+  labels:
+    app: zk-test
+spec:
+  ports:
+  - port: 2181
+    name: client
+  selector:
+    app: zk-test
+---
+# Source: solr-base/templates/zk-external-svc.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: zk-external-test
+  namespace: default
+  labels:
+    app: zk-test
+spec:
+  type: LoadBalancer
+  ports:
+    - port: 2181
+      targetPort: 2181  
+  selector:
+    app: zk-test
+---
+# Source: solr-base/templates/zk-hs-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: zk-hs-test
+  namespace: default
+  labels:
+    app: zk-test
+spec:
+  ports:
+  - port: 2888
+    name: server
+  - port: 3888
+    name: leader-election
+  - port: 2181
+    name: client
+  # We want all pods in the StatefulSet to have their addresses published
+  # so that nodes can talk to each other before the readiness probes can pass
+  publishNotReadyAddresses: true
+  clusterIP: None
+  selector:
+    app: zk-test
+---
+# Source: solr-base/templates/solr-request-count-hpa.yaml
+apiVersion: autoscaling/v2beta1
+kind: HorizontalPodAutoscaler
+metadata:
+  name: solr-request-count-test
+  namespace: default
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: solr-test
+  minReplicas: 2
+  maxReplicas: 3
+  metrics:
+  - type: Pods
+    pods:
+      metricName: solr_metrics_core_distrib_select_one_minute_rate
+      targetAverageValue: 10
+---
+# Source: solr-base/templates/solr-statefulset.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: solr-test
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      app: solr-test
+  serviceName: solr-hs-test
+  replicas: 2
+  updateStrategy:
+    type: RollingUpdate
+  podManagementPolicy: Parallel
+  template:
+    metadata:
+      labels:
+        app: solr-test
+        component: solr
+      annotations:
+        prometheus.io/port: "9983"
+        prometheus.io/scrape: "true"
+    spec:
+      serviceAccountName: solr-test
+      terminationGracePeriodSeconds: 600
+      #TODO: put appropriate label for node selector
+      #nodeSelector:
+        #klevu-search/instance-type: m.4xlarge
+      # securityContext:
+      #   fsGroup: 8983
+      #   runAsUser: 8983
+      #   runAsGroup: 8983
+      #   runAsNonRoot: true
+#      affinity:
+#        podAntiAffinity:
+#          requiredDuringSchedulingIgnoredDuringExecution:
+#            - labelSelector:
+#                matchExpressions:
+#                  - key: "app"
+#                    operator: In
+#                    values:
+#                      - solr-test
+#                  - key: "app"
+#                    operator: In
+#                    values:
+#                      - zk-test
+#              topologyKey: "kubernetes.io/hostname"
+#          preferredDuringSchedulingIgnoredDuringExecution:
+#            - weight: 1
+#              podAffinityTerm:
+#                labelSelector:
+#                  matchExpressions:
+#                    - key: "app"
+#                      operator: In
+#                      values:
+#                        - solr-test
+#                topologyKey: "failure-domain.beta.kubernetes.io/zone"
+      volumes:
+        - name: solrlogs
+          emptyDir: {}
+        - name: shared
+          emptyDir: {}
+        - name: features
+          emptyDir: {}     
+        - name: config-volume
+          configMap:
+            name: solr-exporter-config
+      imagePullSecrets:
+        - name: "artifactory"
+      containers:
+        - name: solr
+          image: "sarkaramrit2/klevu-solr:latest"
+          imagePullPolicy: Always
+          # securityContext:
+          #   allowPrivilegeEscalation: false
+          resources:
+            limits:
+              memory: 512M
+            requests:
+              cpu: 1.2
+              memory: 512M
+          ports:
+          - containerPort: 8983
+            name: client
+          env:
+            # this variable is used to trigger the restart on pods when storage get changed
+            - name: SOLR_STORAGE
+              value: "5Gi"
+            - name: SOLR_OPTS
+              value: "-Xmx256m -Xms256m"
+            - name: SOLR_HOME
+              value: "/opt/solr/server/solr"
+            - name: SOLR_PORT
+              value: "8983"
+            - name: ZK_HOST
+              value: "zk-test-0.zk-hs-test.default.svc.cluster.local:2181,zk-test-1.zk-hs-test.default.svc.cluster.local:2181,zk-test-2.zk-hs-test.default.svc.cluster.local:2181"
+            - name: SOLR_LOGS_DIR
+              value: "/opt/solr/logs"
+            - name: SOLR_DATA_HOME
+              value: "/opt/solr/data"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: SOLR_STOP_WAIT
+              value: "600"
+            - name: SOLR_LOG_LEVEL
+              value: "INFO"
+          livenessProbe:
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            failureThreshold: 6
+            httpGet:
+              path: /solr/admin/info/health
+              port: 8983
+          readinessProbe:
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            httpGet:
+              path: /solr/admin/info/health
+              port: 8983
+          volumeMounts:
+            - name: data
+              mountPath: /opt/solr/data
+            - name: solrlogs
+              mountPath: /opt/solr/logs
+            - name: features
+              mountPath: /opt/solr/server/solr/features
+        - name: exporter
+          image: "sarkaramrit2/klevu-solr:latest"
+          imagePullPolicy: Always
+          resources:
+            limits:
+              cpu: 400m
+              memory: 512M
+            requests:
+              cpu: 200m
+              memory: 256M
+          ports:
+          - containerPort: 9983
+            name: solr-client
+          command:
+            - "/opt/solr/contrib/prometheus-exporter/bin/solr-exporter"
+            - "-p"
+            - "9983"
+            - "-b"
+            - "http://localhost:8983/solr"
+            - "-n"
+            - "7"
+            - "-f"
+            - "/opt/solr-exporter/custom-config/solr-exporter-config.xml"
+          livenessProbe:
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            httpGet:
+              path: "/metrics"
+              port: 9983
+          readinessProbe:
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            httpGet:
+              path: "/metrics"
+              port: 9983
+          volumeMounts:
+          - name: config-volume
+            mountPath: /opt/solr-exporter/custom-config
+      initContainers:
+        - name: check-zk
+          image: busybox:latest
+          command: ['sh', '-c', 'COUNTER=0; while [  $COUNTER -lt 30 ]; do for i in "zk-test-0.zk-hs-test.default.svc.cluster.local" "zk-test-1.zk-hs-test.default.svc.cluster.local" "zk-test-2.zk-hs-test.default.svc.cluster.local"; do mode=$(echo srvr | nc $i 2181 | grep "Mode"); if [ "$mode" == "Mode: leader" ]; then exit 0; fi; done; let COUNTER=COUNTER+1; sleep 2; done; echo "Did NOT see a ZK leader after 60 secs!"; exit 1;']
+  volumeClaimTemplates:
+    - metadata:
+        namespace: default
+        name: data
+        labels:
+          app: solr-test
+      spec:
+#        storageClassName: csi-cinder-high-speed
+        accessModes:
+          - "ReadWriteOnce"
+        resources:
+          requests:
+            storage: 1Gi
+    - metadata:
+        namespace: default
+        name: redis-data
+        labels:
+          app: solr-test
+      spec:
+#        storageClassName: csi-cinder-high-speed
+        accessModes:
+          - "ReadWriteOnce"
+        resources:
+          requests:
+            storage: 5Gi
+---
+# Source: solr-base/templates/zk-statefulset.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: zk-test
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      app: zk-test
+  serviceName: zk-hs-test
+  replicas: 3
+  updateStrategy:
+    type: RollingUpdate
+  podManagementPolicy: Parallel
+  template:
+    metadata:
+      labels:
+        app: zk-test
+        component: zk
+    spec:
+      #TODO: put appropriate label for node selector
+      #nodeSelector:
+        #klevu-search/instance-type: m.4xlarge
+#      affinity:
+#        podAntiAffinity:
+#          requiredDuringSchedulingIgnoredDuringExecution:
+#            - labelSelector:
+#                matchExpressions:
+#                  - key: "app"
+#                    operator: In
+#                    values:
+#                      - zk-test
+#                  - key: "app"
+#                    operator: In
+#                    values:
+#                      - solr-test
+#              topologyKey: "kubernetes.io/hostname"
+#          preferredDuringSchedulingIgnoredDuringExecution:
+#            - weight: 1
+#              podAffinityTerm:
+#                labelSelector:
+#                  matchExpressions:
+#                    - key: "app"
+#                      operator: In
+#                      values:
+#                        - zk-test
+#                topologyKey: "failure-domain.beta.kubernetes.io/zone"
+      containers:
+        - name: kubernetes-zookeeper
+          image: "zookeeper:3.5.6"
+          imagePullPolicy: IfNotPresent
+          command:
+            - "/bin/bash"
+            - "-xec"
+            - "/config-scripts/run"
+          ports:
+            - name: client
+              containerPort: 2181
+              protocol: TCP
+
+            - name: election
+              containerPort: 3888
+              protocol: TCP
+
+            - name: server
+              containerPort: 2888
+              protocol: TCP
+
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - /config-scripts/ok
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 2
+            successThreshold: 1
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - /config-scripts/ready
+            initialDelaySeconds: 30
+            periodSeconds: 60
+            timeoutSeconds: 10
+            failureThreshold: 3
+            successThreshold: 1
+          env:
+            - name: ZK_DATA_DIR
+              value: "/var/lib/zookeeper"
+            - name: ZK_CONF_DIR
+              value: "/var/lib/zookeeper/conf"
+            - name: JMXAUTH
+              value: "false"
+            - name: JMXDISABLE
+              value: "true"
+            - name: JMXPORT
+              value: "1099"
+            - name: JMXSSL
+              value: "false"
+            - name: ZK_DATA_LOG_DIR
+              value: "/var/lib/zookeeper/log"
+            - name: ZK_REPLICAS
+              value: "3"
+            - name: ZK_SYNC_LIMIT
+              value: "10"
+            - name: ZK_TICK_TIME
+              value: "2000"
+            - name: ZOO_AUTOPURGE_PURGEINTERVAL
+              value: "12"
+            - name: ZOO_AUTOPURGE_SNAPRETAINCOUNT
+              value: "3"
+            - name: ZOO_INIT_LIMIT
+              value: "5"
+            - name: ZOO_MAX_CLIENT_CNXNS
+              value: "60"
+            - name: ZOO_PORT
+              value: "2181"
+            - name: ZOO_STANDALONE_ENABLED
+              value: "false"
+            - name: ZOO_TICK_TIME
+              value: "2000"
+            - name: ZK_HEAP_SIZE
+              value: "512M"
+            - name: ZOO_METRICS_PROVIDER_CLASS
+              value: "org.apache.zookeeper.metrics.prometheus.PrometheusMetricsProvider"
+            - name: ZOO_METRICS_PROVIDER_PORT
+              value: "7070"
+          resources:
+            {}
+          volumeMounts:
+            - name: datadir
+              mountPath: /var/lib/zookeeper
+            - name: config
+              mountPath: /config-scripts
+      volumes:
+        - name: config
+          configMap:
+            name: zk-test
+            defaultMode: 0555
+      securityContext:
+        runAsUser: 1000
+        fsGroup: 1000
+  volumeClaimTemplates:
+    - metadata:
+        namespace: default
+        name: datadir
+        labels:
+          app: zk-test
+      spec:
+#        storageClassName: csi-cinder-high-speed
+        accessModes:
+          - "ReadWriteOnce"
+        resources:
+          requests:
+            storage: "5Gi"
+---
+# Source: solr-base/templates/solr-metrics-service-monitor.yaml
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: solr
+spec:
+  selector:
+    matchLabels:
+      app: solr-test
+  endpoints:
+  - port: solr-client
+---
+# Source: solr-base/templates/solr-poddisruptionbudget.yaml
+apiVersion: policy/v1beta1
+kind: PodDisruptionBudget
+metadata:
+  name: solr-pdb-test
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      app: solr-test
+  maxUnavailable: 1
+---
+# Source: solr-base/templates/zk-poddisruptionbudget.yaml
+apiVersion: policy/v1beta1
+kind: PodDisruptionBudget
+metadata:
+  name: zk-pdb-test
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      app: zk-test
+  maxUnavailable: 1
+---
+# Source: solr-base/templates/solr-service-account.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: solr-test
+  namespace: default
+  labels:
+    app: solr-test
+---
+# Source: solr-base/templates/solr-exporter-configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  creationTimestamp: 2016-02-18T18:52:05Z
+  name: solr-exporter-config
+  namespace: default
+  resourceVersion: "516"
+  uid: b4952dc3-d670-11e5-8cd0-68f728db1985
+data:
+  log4j2-console.xml: |
+    <?xml version="1.0" encoding="UTF-8"?>
+    <!--
+      Licensed to the Apache Software Foundation (ASF) under one or more
+      contributor license agreements.  See the NOTICE file distributed with
+      this work for additional information regarding copyright ownership.
+      The ASF licenses this file to You under the Apache License, Version 2.0
+      (the "License"); you may not use this file except in compliance with
+      the License.  You may obtain a copy of the License at
+
+          http://www.apache.org/licenses/LICENSE-2.0
+
+      Unless required by applicable law or agreed to in writing, software
+      distributed under the License is distributed on an "AS IS" BASIS,
+      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+      See the License for the specific language governing permissions and
+      limitations under the License.
+      -->
+
+    <!-- Use this file for logging exlusively to the console, useful for
+         some development tasks. Should not be used for production -->
+    <Configuration>
+      <Appenders>
+        <Console name="STDERR" target="SYSTEM_ERR">
+          <PatternLayout>
+            <Pattern>
+              %-5p - %d{yyyy-MM-dd HH:mm:ss.SSS}; %c; %m%n
+            </Pattern>
+          </PatternLayout>
+        </Console>
+      </Appenders>
+      <Loggers>
+        <Logger name="org.apache.zookeeper" level="WARN"/>
+        <Logger name="org.apache.hadoop" level="WARN"/>
+
+        <Root level="INFO">
+          <AppenderRef ref="STDERR"/>
+        </Root>
+      </Loggers>
+    </Configuration>
+  solr-exporter-config.xml: |
+    <?xml version="1.0" encoding="UTF-8" ?>
+    <!--
+    Licensed to the Apache Software Foundation (ASF) under one or more
+    contributor license agreements.  See the NOTICE file distributed with
+    this work for additional information regarding copyright ownership.
+    The ASF licenses this file to You under the Apache License, Version 2.0
+    (the "License"); you may not use this file except in compliance with
+    the License.  You may obtain a copy of the License at
+
+        http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing, software
+    distributed under the License is distributed on an "AS IS" BASIS,
+    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    See the License for the specific language governing permissions and
+    limitations under the License.
+    -->
+
+    <config>
+
+        <rules>
+
+            <ping>
+            <lst name="request">
+                <lst name="query">
+                <str name="path">/admin/ping</str>
+                </lst>
+                <arr name="jsonQueries">
+                <str>
+                    . as $object | $object |
+                    (if $object.status == "OK" then 1.0 else 0.0 end) as $value |
+                    {
+                    name         : "solr_ping",
+                    type         : "GAUGE",
+                    help         : "See following URL: https://lucene.apache.org/solr/guide/ping.html",
+                    label_names  : [],
+                    label_values : [],
+                    value        : $value
+                    }
+                </str>
+                </arr>
+            </lst>
+            </ping>
+
+            <metrics>
+            <lst name="request">
+                <lst name="query">
+                <str name="path">/admin/metrics</str>
+                <lst name="params">
+                    <str name="group">all</str>
+                    <str name="type">all</str>
+                    <str name="prefix"></str>
+                    <str name="property"></str>
+                </lst>
+                </lst>
+                <arr name="jsonQueries">
+                <!--
+                    jvm metrics
+                -->
+                <str>
+                    .metrics["solr.jvm"] | to_entries | .[] | select(.key | startswith("gc.")) | select(.key | endswith(".count")) as $object |
+                    $object.key | split(".")[1] as $item |
+                    $object.value as $value |
+                    {
+                    name         : "solr_metrics_jvm_gc_total",
+                    type         : "COUNTER",
+                    help         : "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names  : ["item"],
+                    label_values : [$item],
+                    value        : $value
+                    }
+                </str>
+                <str>
+                    .metrics["solr.jvm"] | to_entries | .[] | select(.key | startswith("gc.")) | select(.key | endswith(".time")) as $object |
+                    $object.key | split(".")[1] as $item |
+                    ($object.value / 1000) as $value |
+                    {
+                    name         : "solr_metrics_jvm_gc_seconds_total",
+                    type         : "COUNTER",
+                    help         : "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names  : ["item"],
+                    label_values : [$item],
+                    value        : $value
+                    }
+                </str>
+                <str>
+                    .metrics["solr.jvm"] | to_entries | .[] | select(.key | startswith("memory.heap.")) | select(.key | endswith(".usage") | not) as $object |
+                    $object.key | split(".") | last as $item |
+                    $object.value as $value |
+                    {
+                    name         : "solr_metrics_jvm_memory_heap_bytes",
+                    type         : "GAUGE",
+                    help         : "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names  : ["item"],
+                    label_values : [$item],
+                    value        : $value
+                    }
+                </str>
+                <str>
+                    .metrics["solr.jvm"] | to_entries | .[] | select(.key == "os.committedVirtualMemorySize" or .key == "os.freePhysicalMemorySize" or .key == "os.freeSwapSpaceSize" or .key =="os.totalPhysicalMemorySize" or .key == "os.totalSwapSpaceSize") as $object |
+                    $object.key | split(".") | last as $item |
+                    $object.value as $value |
+                    {
+                    name         : "solr_metrics_jvm_os_memory_bytes",
+                    type         : "GAUGE",
+                    help         : "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names  : ["item"],
+                    label_values : [$item],
+                    value        : $value
+                    }
+                </str>
+                <str>
+                    .metrics["solr.jvm"] | to_entries | .[] | select(.key == "os.processCpuLoad" or .key == "os.systemCpuLoad") as $object |
+                    $object.key | split(".") | last as $item |
+                    $object.value as $value |
+                    {
+                    name         : "solr_metrics_jvm_os_cpu_load",
+                    type         : "GAUGE",
+                    help         : "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names  : ["item"],
+                    label_values : [$item],
+                    value        : $value
+                    }
+                </str>
+                <str>
+                    .metrics["solr.jvm"] | to_entries | .[] | select(.key == "os.processCpuTime") as $object |
+                    ($object.value / 1000.0) as $value |
+                    {
+                    name         : "solr_metrics_jvm_os_cpu_time_seconds",
+                    type         : "COUNTER",
+                    help         : "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names  : ["item"],
+                    label_values : ["processCpuTime"],
+                    value        : $value
+                    }
+                </str>
+                <str>
+                    .metrics["solr.jvm"] | to_entries | .[] | select(.key == "os.systemLoadAverage") as $object |
+                    $object.value as $value |
+                    {
+                    name         : "solr_metrics_jvm_os_load_average",
+                    type         : "GAUGE",
+                    help         : "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names  : ["item"],
+                    label_values : ["systemLoadAverage"],
+                    value        : $value
+                    }
+                </str>
+                <str>
+                    .metrics["solr.node"] | to_entries | .[] | select(.key | startswith("CONTAINER.fs.coreRoot.")) | select(.key | endswith(".totalSpace") or endswith(".usableSpace")) as $object |
+                    $object.key | split(".") as $key_items |
+                    $key_items | length as $label_len |
+                    $key_items[0] as $category |
+                    $key_items[3] as $item |
+                    $object.value as $value |
+                    {
+                    name         : "solr_metrics_node_core_root_fs_bytes",
+                    type         : "GAUGE",
+                    help         : "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names  : ["category", "item"],
+                    label_values : [$category, $item],
+                    value        : $value
+                    }
+                </str>
+
+                <!--
+                    core metrics
+                -->
+                <str>
+                    .metrics | to_entries | .[] | select(.key | startswith("solr.core.")) as $parent |
+                    $parent.key | split(".") as $parent_key_items |
+                    $parent_key_items | length as $parent_key_item_len |
+                    (if $parent_key_item_len == 3 then $parent_key_items[2] else "" end) as $core |
+                    (if $parent_key_item_len == 5 then $parent_key_items[2] else "" end) as $collection |
+                    (if $parent_key_item_len == 5 then $parent_key_items[3] else "" end) as $shard |
+                    (if $parent_key_item_len == 5 then $parent_key_items[4] else "" end) as $replica |
+                    (if $parent_key_item_len == 5 then ($collection + "_" + $shard + "_" + $replica) else $core end) as $core |
+                    $parent.value | to_entries | .[] | select(.key | endswith(".clientErrors")) as $object |
+                    $object.key | split(".")[0] as $category |
+                    $object.key | split(".")[1] as $handler |
+                    select($handler | startswith("/")) |
+                    $object.value.count as $value |
+                    if $parent_key_item_len == 3 then
+                    {
+                    name: "solr_metrics_core_client_errors_total",
+                    type: "COUNTER",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "handler", "core"],
+                    label_values: [$category, $handler, $core],
+                    value: $value
+                    }
+                    else
+                    {
+                    name: "solr_metrics_core_client_errors_total",
+                    type: "COUNTER",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "handler", "core", "collection", "shard", "replica"],
+                    label_values: [$category, $handler, $core, $collection, $shard, $replica],
+                    value: $value
+                    }
+                    end
+                </str>
+                <str>
+                    .metrics | to_entries | .[] | select(.key | startswith("solr.core.")) as $parent |
+                    $parent.key | split(".") as $parent_key_items |
+                    $parent_key_items | length as $parent_key_item_len |
+                    (if $parent_key_item_len == 3 then $parent_key_items[2] else "" end) as $core |
+                    (if $parent_key_item_len == 5 then $parent_key_items[2] else "" end) as $collection |
+                    (if $parent_key_item_len == 5 then $parent_key_items[3] else "" end) as $shard |
+                    (if $parent_key_item_len == 5 then $parent_key_items[4] else "" end) as $replica |
+                    (if $parent_key_item_len == 5 then ($collection + "_" + $shard + "_" + $replica) else $core end) as $core |
+                    $parent.value | to_entries | .[] | select(.key | endswith(".errors")) | select (.value | type == "object") as $object |
+                    $object.key | split(".")[0] as $category |
+                    $object.key | split(".")[1] as $handler |
+                    select($handler | startswith("/")) |
+                    $object.value.count as $value |
+                    if $parent_key_item_len == 3 then
+                    {
+                    name: "solr_metrics_core_errors_total",
+                    type: "COUNTER",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "handler", "core"],
+                    label_values: [$category, $handler, $core],
+                    value: $value
+                    }
+                    else
+                    {
+                    name: "solr_metrics_core_errors_total",
+                    type: "COUNTER",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "handler", "core", "collection", "shard", "replica"],
+                    label_values: [$category, $handler, $core, $collection, $shard, $replica],
+                    value: $value
+                    }
+                    end
+                </str>
+                <str>
+                    .metrics | to_entries | .[] | select(.key | startswith("solr.core.")) as $parent |
+                    $parent.key | split(".") as $parent_key_items |
+                    $parent_key_items | length as $parent_key_item_len |
+                    (if $parent_key_item_len == 3 then $parent_key_items[2] else "" end) as $core |
+                    (if $parent_key_item_len == 5 then $parent_key_items[2] else "" end) as $collection |
+                    (if $parent_key_item_len == 5 then $parent_key_items[3] else "" end) as $shard |
+                    (if $parent_key_item_len == 5 then $parent_key_items[4] else "" end) as $replica |
+                    (if $parent_key_item_len == 5 then ($collection + "_" + $shard + "_" + $replica) else $core end) as $core |
+                    $parent.value | to_entries | .[] | select(.key | endswith(".distrib.requestTimes")) as $object |
+                    $object.key | split(".")[0] as $category |
+                    $object.key | split(".")[1] as $handler |
+                    $object.value | to_entries | .[] | select(.key | endswith("Rate")) as $target |
+                    $target.key as $item |
+                    $target.value as $value |
+                    if $parent_key_item_len == 3 then
+                    {
+                    name: "solr_metrics_core_distrib_one_minute_rate",
+                    type: "COUNTER",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "handler", "core", "item"],
+                    label_values: [$category, $handler, $core, $item],
+                    value: $value
+                    }
+                    else
+                    {
+                    name: "solr_metrics_core_distrib_one_minute_rate",
+                    type: "COUNTER",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "handler", "core", "collection", "shard", "replica", "item"],
+                    label_values: [$category, $handler, $core, $collection, $shard, $replica, $item],
+                    value: $value
+                    }
+                    end
+                </str>
+                <str>
+                    .metrics | to_entries | .[] | select(.key | startswith("solr.core.")) as $parent |
+                    $parent.key | split(".") as $parent_key_items |
+                    $parent_key_items | length as $parent_key_item_len |
+                    (if $parent_key_item_len == 3 then $parent_key_items[2] else "" end) as $core |
+                    (if $parent_key_item_len == 5 then $parent_key_items[2] else "" end) as $collection |
+                    (if $parent_key_item_len == 5 then $parent_key_items[3] else "" end) as $shard |
+                    (if $parent_key_item_len == 5 then $parent_key_items[4] else "" end) as $replica |
+                    (if $parent_key_item_len == 5 then ($collection + "_" + $shard + "_" + $replica) else $core end) as $core |
+                    $parent.value | to_entries | .[] | select(.key | endswith("QUERY./select.distrib.requestTimes")) as $object |
+                    $object.key | split(".")[0] as $category |
+                    $object.key | split(".")[1] as $handler | 
+                    $object.value | to_entries | .[] | select(.key | endswith("1minRate")) as $target |
+                    $target.key as $item |
+                    $target.value as $value |
+                    if $parent_key_item_len == 3 then
+                    {
+                    name: "solr_metrics_core_distrib_select_one_minute_rate",
+                    type: "COUNTER",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "handler", "core", "item"],
+                    label_values: [$category, $handler, $core, $item],
+                    value: $value
+                    }
+                    else
+                    {
+                    name: "solr_metrics_core_distrib_select_one_minute_rate",
+                    type: "COUNTER",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "handler", "core", "collection", "shard", "replica", "item"],
+                    label_values: [$category, $handler, $core, $collection, $shard, $replica, $item],
+                    value: $value
+                    }
+                    end
+                </str>                
+                <str>
+                    .metrics | to_entries | .[] | select(.key | startswith("solr.core.")) as $parent |
+                    $parent.key | split(".") as $parent_key_items |
+                    $parent_key_items | length as $parent_key_item_len |
+                    (if $parent_key_item_len == 3 then $parent_key_items[2] else "" end) as $core |
+                    (if $parent_key_item_len == 5 then $parent_key_items[2] else "" end) as $collection |
+                    (if $parent_key_item_len == 5 then $parent_key_items[3] else "" end) as $shard |
+                    (if $parent_key_item_len == 5 then $parent_key_items[4] else "" end) as $replica |
+                    (if $parent_key_item_len == 5 then ($collection + "_" + $shard + "_" + $replica) else $core end) as $core |
+                    $parent.value | to_entries | .[] | select(.key | endswith(".distrib.requestTimes")) as $object |
+                    $object.key | split(".")[0] as $category |
+                    $object.key | split(".")[1] as $handler |
+                    $object.value | to_entries | .[] | select(.key | endswith("_ms")) as $target |
+                    $target.key as $item |
+                    $target.value as $value |
+                    if $parent_key_item_len == 3 then
+                    {
+                    name: "solr_metrics_core_distrib_latency",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "handler", "core", "item"],
+                    label_values: [$category, $handler, $core, $item],
+                    value: $value
+                    }
+                    else
+                    {
+                    name: "solr_metrics_core_distrib_latency",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "handler", "collection", "shard", "replica", "core", "item"],
+                    label_values: [$category, $handler, $collection, $shard, $replica, $core, $item],
+                    value: $value
+                    }
+                    end
+                </str>
+                <str>
+                    .metrics | to_entries | .[] | select(.key | startswith("solr.core.")) as $parent |
+                    $parent.key | split(".") as $parent_key_items |
+                    $parent_key_items | length as $parent_key_item_len |
+                    (if $parent_key_item_len == 3 then $parent_key_items[2] else "" end) as $core |
+                    (if $parent_key_item_len == 5 then $parent_key_items[2] else "" end) as $collection |
+                    (if $parent_key_item_len == 5 then $parent_key_items[3] else "" end) as $shard |
+                    (if $parent_key_item_len == 5 then $parent_key_items[4] else "" end) as $replica |
+                    (if $parent_key_item_len == 5 then ($collection + "_" + $shard + "_" + $replica) else $core end) as $core |
+                    $parent.value | to_entries | .[] | select(.key | endswith(".serverErrors")) | select (.value | type == "object") as $object |
+                    $object.key | split(".")[0] as $category |
+                    $object.key | split(".")[1] as $handler |
+                    select($handler | startswith("/")) |
+                    $object.value.count as $value |
+                    if $parent_key_item_len == 3 then
+                    {
+                    name: "solr_metrics_core_server_errors_total",
+                    type: "COUNTER",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "handler", "core"],
+                    label_values: [$category, $handler, $core],
+                    value: $value
+                    }
+                    else
+                    {
+                    name: "solr_metrics_core_server_errors_total",
+                    type: "COUNTER",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "handler", "core", "collection", "shard", "replica"],
+                    label_values: [$category, $handler, $core, $collection, $shard, $replica],
+                    value: $value
+                    }
+                    end
+                </str>
+                <str>
+                    .metrics | to_entries | .[] | select(.key | startswith("solr.core.")) as $parent |
+                    $parent.key | split(".") as $parent_key_items |
+                    $parent_key_items | length as $parent_key_item_len |
+                    (if $parent_key_item_len == 3 then $parent_key_items[2] else "" end) as $core |
+                    (if $parent_key_item_len == 5 then $parent_key_items[2] else "" end) as $collection |
+                    (if $parent_key_item_len == 5 then $parent_key_items[3] else "" end) as $shard |
+                    (if $parent_key_item_len == 5 then $parent_key_items[4] else "" end) as $replica |
+                    (if $parent_key_item_len == 5 then ($collection + "_" + $shard + "_" + $replica) else $core end) as $core |
+                    $parent.value | to_entries | .[] | select(.key | endswith(".timeouts")) | select (.value | type == "object") as $object |
+                    $object.key | split(".")[0] as $category |
+                    $object.key | split(".")[1] as $handler |
+                    select($handler | startswith("/")) |
+                    $object.value.count as $value |
+                    if $parent_key_item_len == 3 then
+                    {
+                    name: "solr_metrics_core_timeouts_total",
+                    type: "COUNTER",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "handler", "core"],
+                    label_values: [$category, $handler, $core],
+                    value: $value
+                    }
+                    else
+                    {
+                    name: "solr_metrics_core_timeouts_total",
+                    type: "COUNTER",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "handler", "core", "collection", "shard", "replica"],
+                    label_values: [$category, $handler, $core, $collection, $shard, $replica],
+                    value: $value
+                    }
+                    end
+                </str>
+                <str>
+                    .metrics | to_entries | .[] | select(.key | startswith("solr.core.")) as $parent |
+                    $parent.key | split(".") as $parent_key_items |
+                    $parent_key_items | length as $parent_key_item_len |
+                    (if $parent_key_item_len == 3 then $parent_key_items[2] else "" end) as $core |
+                    (if $parent_key_item_len == 5 then $parent_key_items[2] else "" end) as $collection |
+                    (if $parent_key_item_len == 5 then $parent_key_items[3] else "" end) as $shard |
+                    (if $parent_key_item_len == 5 then $parent_key_items[4] else "" end) as $replica |
+                    (if $parent_key_item_len == 5 then ($collection + "_" + $shard + "_" + $replica) else $core end) as $core |
+                    $parent.value | to_entries | .[] | select(.key == "INDEX.sizeInBytes") as $object |
+                    $object.key | split(".")[0] as $category |
+                    $object.value as $value |
+                    if $parent_key_item_len == 3 then
+                    {
+                    name: "solr_metrics_core_index_size_bytes",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "core"],
+                    label_values: [$category, $core],
+                    value: $value
+                    }
+                    else
+                    {
+                    name: "solr_metrics_core_index_size_bytes",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "core", "collection", "shard", "replica"],
+                    label_values: [$category, $core, $collection, $shard, $replica],
+                    value: $value
+                    }
+                    end
+                </str>
+                <str>
+                    .metrics | to_entries | .[] | select(.key | startswith("solr.core.")) as $parent |
+                    $parent.key | split(".") as $parent_key_items |
+                    $parent_key_items | length as $parent_key_item_len |
+                    (if $parent_key_item_len == 3 then $parent_key_items[2] else "" end) as $core |
+                    (if $parent_key_item_len == 5 then $parent_key_items[2] else "" end) as $collection |
+                    (if $parent_key_item_len == 5 then $parent_key_items[3] else "" end) as $shard |
+                    (if $parent_key_item_len == 5 then $parent_key_items[4] else "" end) as $replica |
+                    (if $parent_key_item_len == 5 then ($collection + "_" + $shard + "_" + $replica) else $core end) as $core |
+                    $parent.value | to_entries | .[] | select(.key == "SEARCHER.searcher.deletedDocs" or .key == "SEARCHER.searcher.maxDoc" or .key == "SEARCHER.searcher.numDocs") as $object |
+                    $object.key | split(".")[0] as $category |
+                    $object.key | split(".")[2] as $item |
+                    $object.value as $value |
+                    if $parent_key_item_len == 3 then
+                    {
+                    name: "solr_metrics_core_searcher_documents",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "core", "item"],
+                    label_values: [$category, $core, $item],
+                    value: $value
+                    }
+                    else
+                    {
+                    name: "solr_metrics_core_searcher_documents",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "core", "collection", "shard", "replica", "item"],
+                    label_values: [$category, $core, $collection, $shard, $replica, $item],
+                    value: $value
+                    }
+                    end
+                </str>
+                <str>
+                    .metrics | to_entries | .[] | select(.key | startswith("solr.core.")) as $parent |
+                    $parent.key | split(".") as $parent_key_items |
+                    $parent_key_items | length as $parent_key_item_len |
+                    (if $parent_key_item_len == 3 then $parent_key_items[2] else "" end) as $core |
+                    (if $parent_key_item_len == 5 then $parent_key_items[2] else "" end) as $collection |
+                    (if $parent_key_item_len == 5 then $parent_key_items[3] else "" end) as $shard |
+                    (if $parent_key_item_len == 5 then $parent_key_items[4] else "" end) as $replica |
+                    (if $parent_key_item_len == 5 then ($collection + "_" + $shard + "_" + $replica) else $core end) as $core |
+                    $parent.value | to_entries | .[] | select(.key == "TLOG.replay.ops") as $object |
+                    $object.value | to_entries | .[] | . as $target |
+                    $target.key as $item |
+                    $target.value as $value |
+                    if $parent_key_item_len == 3 then
+                    {
+                    name: "solr_metrics_core_tlog_replay",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["core", "item"],
+                    label_values: [$core, $item],
+                    value: $value
+                    }
+                    else
+                    {
+                    name: "solr_metrics_core_tlog_replay",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["collection", "shard", "replica", "core", "item"],
+                    label_values: [$collection, $shard, $replica, $core, $item],
+                    value: $value
+                    }
+                    end
+                </str>
+                <str>
+                    .metrics | to_entries | .[] | select(.key | startswith("solr.core.")) as $parent |
+                    $parent.key | split(".") as $parent_key_items |
+                    $parent_key_items | length as $parent_key_item_len |
+                    (if $parent_key_item_len == 3 then $parent_key_items[2] else "" end) as $core |
+                    (if $parent_key_item_len == 5 then $parent_key_items[2] else "" end) as $collection |
+                    (if $parent_key_item_len == 5 then $parent_key_items[3] else "" end) as $shard |
+                    (if $parent_key_item_len == 5 then $parent_key_items[4] else "" end) as $replica |
+                    (if $parent_key_item_len == 5 then ($collection + "_" + $shard + "_" + $replica) else $core end) as $core |
+                    $parent.value | to_entries | .[] | select(.key == "TLOG.replay.remaining.bytes") as $object |
+                    $object.value as $value |
+                    if $parent_key_item_len == 3 then
+                    {
+                    name: "solr_metrics_core_tlog_replay_rem_bytes",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["core"],
+                    label_values: [$core],
+                    value: $value
+                    }
+                    else
+                    {
+                    name: "solr_metrics_core_tlog_replay_rem_bytes",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["collection", "shard", "replica", "core"],
+                    label_values: [$collection, $shard, $replica, $core],
+                    value: $value
+                    }
+                    end
+                </str>
+                <str>
+                    .metrics | to_entries | .[] | select(.key | startswith("solr.core.")) as $parent |
+                    $parent.key | split(".") as $parent_key_items |
+                    $parent_key_items | length as $parent_key_item_len |
+                    (if $parent_key_item_len == 3 then $parent_key_items[2] else "" end) as $core |
+                    (if $parent_key_item_len == 5 then $parent_key_items[2] else "" end) as $collection |
+                    (if $parent_key_item_len == 5 then $parent_key_items[3] else "" end) as $shard |
+                    (if $parent_key_item_len == 5 then $parent_key_items[4] else "" end) as $replica |
+                    (if $parent_key_item_len == 5 then ($collection + "_" + $shard + "_" + $replica) else $core end) as $core |
+                    $parent.value | to_entries | .[] | select(.key == "TLOG.replay.remaining.logs") as $object |
+                    $object.value as $value |
+                    if $parent_key_item_len == 3 then
+                    {
+                    name: "solr_metrics_core_tlog_replay_rem_logs",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["core"],
+                    label_values: [$core],
+                    value: $value
+                    }
+                    else
+                    {
+                    name: "solr_metrics_core_tlog_replay_rem_logs",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["collection", "shard", "replica", "core"],
+                    label_values: [$collection, $shard, $replica, $core],
+                    value: $value
+                    }
+                    end
+                </str>
+                <str>
+                  .metrics | to_entries | .[] | select(.key | startswith("solr.core.")) as $parent |
+                  $parent.key | split(".") as $parent_key_items |
+                  $parent_key_items | length as $parent_key_item_len |
+                  (if $parent_key_item_len == 3 then $parent_key_items[2] else "" end) as $core |
+                  (if $parent_key_item_len == 5 then $parent_key_items[2] else "" end) as $collection |
+                  (if $parent_key_item_len == 5 then $parent_key_items[3] else "" end) as $shard |
+                  (if $parent_key_item_len == 5 then $parent_key_items[4] else "" end) as $replica |
+                  (if $parent_key_item_len == 5 then ($collection + "_" + $shard + "_" + $replica) else $core end) as $core |
+                  $parent.value | to_entries | .[] | select(.key | startswith("CACHE.searcher.")) | select (.key | endswith("documentCache") or endswith("fieldValueCache") or endswith("filterCache") or endswith("perSegFilter") or endswith("queryResultCache")) as $object |
+                  $object.key | split(".")[0] as $category |
+                  $object.key | split(".")[2] as $type |
+                  $object.value | to_entries | .[] | select(.key == "lookups" or .key == "hits" or .key == "size" or .key == "evictions" or .key == "inserts") as $target |
+                  $target.key as $item |
+                  $target.value as $value |
+                  if $parent_key_item_len == 3 then
+                  {
+                    name: "solr_metrics_core_searcher_cache",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "core", "type", "item"],
+                    label_values: [$category, $core, $type, $item],
+                    value: $value
+                  }
+                  else
+                  {
+                    name: "solr_metrics_core_searcher_cache",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "core", "collection", "shard", "replica", "type", "item"],
+                    label_values: [$category, $core, $collection, $shard, $replica, $type, $item],
+                    value: $value
+                  }
+                  end
+                </str>
+                <str>
+                  .metrics | to_entries | .[] | select(.key | startswith("solr.core.")) as $parent |
+                  $parent.key | split(".") as $parent_key_items |
+                  $parent_key_items | length as $parent_key_item_len |
+                  (if $parent_key_item_len == 3 then $parent_key_items[2] else "" end) as $core |
+                  (if $parent_key_item_len == 5 then $parent_key_items[2] else "" end) as $collection |
+                  (if $parent_key_item_len == 5 then $parent_key_items[3] else "" end) as $shard |
+                  (if $parent_key_item_len == 5 then $parent_key_items[4] else "" end) as $replica |
+                  (if $parent_key_item_len == 5 then ($collection + "_" + $shard + "_" + $replica) else $core end) as $core |
+                  $parent.value | to_entries | .[] | select(.key | startswith("CACHE.searcher.")) | select (.key | endswith("documentCache") or endswith("fieldValueCache") or endswith("filterCache") or endswith("perSegFilter") or endswith("queryResultCache")) as $object |
+                  $object.key | split(".")[0] as $category |
+                  $object.key | split(".")[2] as $type |
+                  $object.value | to_entries | .[] | select(.key == "hitratio") as $target |
+                  $target.key as $item |
+                  $target.value as $value |
+                  if $parent_key_item_len == 3 then
+                  {
+                    name: "solr_metrics_core_searcher_cache_hit_ratio",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "core", "type", "item"],
+                    label_values: [$category, $core, $type, $item],
+                    value: $value
+                  }
+                  else
+                  {
+                    name: "solr_metrics_core_searcher_cache_hit_ratio",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "core", "collection", "shard", "replica", "type", "item"],
+                    label_values: [$category, $core, $collection, $shard, $replica, $type, $item],
+                    value: $value
+                  }
+                  end
+                </str>
+                <str>
+                  .metrics | to_entries | .[] | select(.key | startswith("solr.core.")) as $parent |
+                  $parent.key | split(".") as $parent_key_items |
+                  $parent_key_items | length as $parent_key_item_len |
+                  (if $parent_key_item_len == 3 then $parent_key_items[2] else "" end) as $core |
+                  (if $parent_key_item_len == 5 then $parent_key_items[2] else "" end) as $collection |
+                  (if $parent_key_item_len == 5 then $parent_key_items[3] else "" end) as $shard |
+                  (if $parent_key_item_len == 5 then $parent_key_items[4] else "" end) as $replica |
+                  (if $parent_key_item_len == 5 then ($collection + "_" + $shard + "_" + $replica) else $core end) as $core |
+                  $parent.value | to_entries | .[] | select(.key | startswith("CACHE.searcher.")) | select (.key | endswith("documentCache") or endswith("fieldValueCache") or endswith("filterCache") or endswith("perSegFilter") or endswith("queryResultCache")) as $object |
+                  $object.key | split(".")[0] as $category |
+                  $object.key | split(".")[2] as $type |
+                  $object.value | to_entries | .[] | select(.key == "warmupTime") as $target |
+                  $target.key as $item |
+                  ($target.value / 1000) as $value |
+                  if $parent_key_item_len == 3 then
+                  {
+                    name: "solr_metrics_core_searcher_cache_warmup_time",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "core", "type", "item"],
+                    label_values: [$category, $core, $type, $item],
+                    value: $value
+                  }
+                  else
+                  {
+                    name: "solr_metrics_core_searcher_cache_warmup_time",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "core", "collection", "shard", "replica", "type", "item"],
+                    label_values: [$category, $core, $collection, $shard, $replica, $type, $item],
+                    value: $value
+                  }
+                  end
+                </str>
+                <str>
+                  .metrics | to_entries | .[] | select(.key | startswith("solr.core.")) as $parent |
+                  $parent.key | split(".") as $parent_key_items |
+                  $parent_key_items | length as $parent_key_item_len |
+                  (if $parent_key_item_len == 3 then $parent_key_items[2] else "" end) as $core |
+                  (if $parent_key_item_len == 5 then $parent_key_items[2] else "" end) as $collection |
+                  (if $parent_key_item_len == 5 then $parent_key_items[3] else "" end) as $shard |
+                  (if $parent_key_item_len == 5 then $parent_key_items[4] else "" end) as $replica |
+                  (if $parent_key_item_len == 5 then ($collection + "_" + $shard + "_" + $replica) else $core end) as $core |
+                  $parent.value | to_entries | .[] | select(.key | startswith("CACHE.searcher.")) | select (.key | endswith("documentCache") or endswith("fieldValueCache") or endswith("filterCache") or endswith("perSegFilter") or endswith("queryResultCache")) as $object |
+                  $object.key | split(".")[0] as $category |
+                  $object.key | split(".")[2] as $type |
+                  $object.value | to_entries | .[] | select(.key == "cumulative_lookups" or .key == "cumulative_hits" or .key == "cumulative_evictions" or .key == "cumulative_inserts") as $target |
+                  $target.key as $item |
+                  $target.value as $value |
+                  if $parent_key_item_len == 3 then
+                  {
+                    name: "solr_metrics_core_searcher_cumulative_cache",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "core", "type", "item"],
+                    label_values: [$category, $core, $type, $item],
+                    value: $value
+                  }
+                  else
+                  {
+                    name: "solr_metrics_core_searcher_cumulative_cache",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "core", "collection", "shard", "replica", "type", "item"],
+                    label_values: [$category, $core, $collection, $shard, $replica, $type, $item],
+                    value: $value
+                  }
+                  end
+                </str>
+                <str>
+                  .metrics | to_entries | .[] | select(.key | startswith("solr.core.")) as $parent |
+                  $parent.key | split(".") as $parent_key_items |
+                  $parent_key_items | length as $parent_key_item_len |
+                  (if $parent_key_item_len == 3 then $parent_key_items[2] else "" end) as $core |
+                  (if $parent_key_item_len == 5 then $parent_key_items[2] else "" end) as $collection |
+                  (if $parent_key_item_len == 5 then $parent_key_items[3] else "" end) as $shard |
+                  (if $parent_key_item_len == 5 then $parent_key_items[4] else "" end) as $replica |
+                  (if $parent_key_item_len == 5 then ($collection + "_" + $shard + "_" + $replica) else $core end) as $core |
+                  $parent.value | to_entries | .[] | select(.key | startswith("CACHE.searcher.")) | select (.key | endswith("documentCache") or endswith("fieldValueCache") or endswith("filterCache") or endswith("perSegFilter") or endswith("queryResultCache")) as $object |
+                  $object.key | split(".")[0] as $category |
+                  $object.key | split(".")[2] as $type |
+                  $object.value | to_entries | .[] | select(.key == "cumulative_hitratio") as $target |
+                  $target.key as $item |
+                  $target.value as $value |
+                  if $parent_key_item_len == 3 then
+                  {
+                    name: "solr_metrics_core_searcher_cumulative_cache_hit_ratio",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "core", "type", "item"],
+                    label_values: [$category, $core, $type, $item],
+                    value: $value
+                  }
+                  else
+                  {
+                    name: "solr_metrics_core_searcher_cumulative_cache_hit_ratio",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "core", "collection", "shard", "replica", "type", "item"],
+                    label_values: [$category, $core, $collection, $shard, $replica, $type, $item],
+                    value: $value
+                  }
+                  end
+                </str>
+                <str>
+                    .metrics | to_entries | .[] | select(.key | startswith("solr.core.")) as $parent |
+                    $parent.key | split(".") as $parent_key_items |
+                    $parent_key_items | length as $parent_key_item_len |
+                    (if $parent_key_item_len == 3 then $parent_key_items[2] else "" end) as $core |
+                    (if $parent_key_item_len == 5 then $parent_key_items[2] else "" end) as $collection |
+                    (if $parent_key_item_len == 5 then $parent_key_items[3] else "" end) as $shard |
+                    (if $parent_key_item_len == 5 then $parent_key_items[4] else "" end) as $replica |
+                    (if $parent_key_item_len == 5 then ($collection + "_" + $shard + "_" + $replica) else $core end) as $core |
+                    $parent.value | to_entries | .[] | select(.key == "REPLICATION./replication.indexVersion") as $object |
+                    $object.value as $value |
+                    if $parent_key_item_len == 3 then
+                    {
+                    name: "solr_metrics_core_replication_index_version",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["core"],
+                    label_values: [$core],
+                    value: $value
+                    }
+                    else
+                    {
+                    name: "solr_metrics_core_replication_index_version",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["collection", "shard", "replica", "core"],
+                    label_values: [$collection, $shard, $replica, $core],
+                    value: $value
+                    }
+                    end
+                </str>
+                <str>
+                    .metrics | to_entries | .[] | select(.key | startswith("solr.core.")) as $parent |
+                    $parent.key | split(".") as $parent_key_items |
+                    $parent_key_items | length as $parent_key_item_len |
+                    (if $parent_key_item_len == 3 then $parent_key_items[2] else "" end) as $core |
+                    (if $parent_key_item_len == 5 then $parent_key_items[2] else "" end) as $collection |
+                    (if $parent_key_item_len == 5 then $parent_key_items[3] else "" end) as $shard |
+                    (if $parent_key_item_len == 5 then $parent_key_items[4] else "" end) as $replica |
+                    (if $parent_key_item_len == 5 then ($collection + "_" + $shard + "_" + $replica) else $core end) as $core |
+                    $parent.value | to_entries | .[] | select(.key == "REPLICATION./replication.indexVersion") as $object |
+                    $object.value | split(",")[0] as $generation |
+                    $generation | split("=")[1] as $gen_value |
+                    if $parent_key_item_len == 3 then
+                    {
+                    name: "solr_metrics_core_replication_indexver_generation",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["core"],
+                    label_values: [$core],
+                    value: $gen_value
+                    }
+                    else
+                    {
+                    name: "solr_metrics_core_replication_indexver_generation",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["collection", "shard", "replica", "core"],
+                    label_values: [$collection, $shard, $replica, $core],
+                    value: $gen_value
+                    }
+                    end
+                </str>
+                <str>
+                    .metrics | to_entries | .[] | select(.key | startswith("solr.core.")) as $parent |
+                    $parent.key | split(".") as $parent_key_items |
+                    $parent_key_items | length as $parent_key_item_len |
+                    (if $parent_key_item_len == 3 then $parent_key_items[2] else "" end) as $core |
+                    (if $parent_key_item_len == 5 then $parent_key_items[2] else "" end) as $collection |
+                    (if $parent_key_item_len == 5 then $parent_key_items[3] else "" end) as $shard |
+                    (if $parent_key_item_len == 5 then $parent_key_items[4] else "" end) as $replica |
+                    (if $parent_key_item_len == 5 then ($collection + "_" + $shard + "_" + $replica) else $core end) as $core |
+                    $parent.value | to_entries | .[] | select(.key == "REPLICATION./replication.indexVersion") as $object |
+                    $object.value | split(",")[1] as $version |
+                    $version | split("=")[1] as $version_value |
+                    if $parent_key_item_len == 3 then
+                    {
+                    name: "solr_metrics_core_replication_indexver_version",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["core"],
+                    label_values: [$core],
+                    value: $version_value
+                    }
+                    else
+                    {
+                    name: "solr_metrics_core_replication_indexver_version",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["collection", "shard", "replica", "core"],
+                    label_values: [$collection, $shard, $replica, $core],
+                    value: $version_value
+                    }
+                    end
+                </str>
+                <str>
+                    .metrics | to_entries | .[] | select(.key | startswith("solr.core.")) as $parent |
+                    $parent.key | split(".") as $parent_key_items |
+                    $parent_key_items | length as $parent_key_item_len |
+                    (if $parent_key_item_len == 3 then $parent_key_items[2] else "" end) as $core |
+                    (if $parent_key_item_len == 5 then $parent_key_items[2] else "" end) as $collection |
+                    (if $parent_key_item_len == 5 then $parent_key_items[3] else "" end) as $shard |
+                    (if $parent_key_item_len == 5 then $parent_key_items[4] else "" end) as $replica |
+                    (if $parent_key_item_len == 5 then ($collection + "_" + $shard + "_" + $replica) else $core end) as $core |
+                    $parent.value | to_entries | .[] | select(.key == "REPLICATION./replication.generation") as $object |
+                    $object.value as $value |
+                    if $parent_key_item_len == 3 then
+                    {
+                    name: "solr_metrics_core_replication_generation",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["core"],
+                    label_values: [$core],
+                    value: $value
+                    }
+                    else
+                    {
+                    name: "solr_metrics_core_replication_generation",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["collection", "shard", "replica", "core"],
+                    label_values: [$collection, $shard, $replica, $core],
+                    value: $value
+                    }
+                    end
+                </str>
+                <str>
+                    .metrics | to_entries | .[] | select(.key | startswith("solr.core.")) as $parent |
+                    $parent.key | split(".") as $parent_key_items |
+                    $parent_key_items | length as $parent_key_item_len |
+                    (if $parent_key_item_len == 3 then $parent_key_items[2] else "" end) as $core |
+                    (if $parent_key_item_len == 5 then $parent_key_items[2] else "" end) as $collection |
+                    (if $parent_key_item_len == 5 then $parent_key_items[3] else "" end) as $shard |
+                    (if $parent_key_item_len == 5 then $parent_key_items[4] else "" end) as $replica |
+                    (if $parent_key_item_len == 5 then ($collection + "_" + $shard + "_" + $replica) else $core end) as $core |
+                    $parent.value | to_entries | .[] | select(.key == "REPLICATION./replication.fetcher") as $object |
+                    $object.value | to_entries | .[] | select(.key == "lastCycleBytesDownloaded") as $target |
+                    $target.key as $item |
+                    $target.value as $value |
+                    if $parent_key_item_len == 3 then
+                    {
+                    name: "solr_metrics_core_replication_fetcher",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "core", "type", "item"],
+                    label_values: [$category, $core, $type, $item],
+                    value: $value
+                    }
+                    else
+                    {
+                    name: "solr_metrics_core_replication_fetcher",
+                    type: "GAUGE",
+                    help: "See following URL: https://lucene.apache.org/solr/guide/metrics-reporting.html",
+                    label_names: ["category", "core", "collection", "shard", "replica", "type", "item"],
+                    label_values: [$category, $core, $collection, $shard, $replica, $type, $item],
+                    value: $value
+                    }
+                    end
+                </str>
+              </arr>
+            </lst>
+            </metrics>
+
+            <collections>
+            <lst name="request">
+                <lst name="query">
+                <str name="path">/admin/collections</str>
+                <lst name="params">
+                    <str name="action">CLUSTERSTATUS</str>
+                </lst>
+                </lst>
+                <arr name="jsonQueries">
+                <str>
+                    .cluster.collections | to_entries | .[] | . as $object |
+                    $object.key as $collection |
+                    $object.value.shards | to_entries | .[] | . as $shard_obj |
+                    $shard_obj.key as $shard |
+                    (if $shard_obj.value.state == "active" then 1.0 else 0.0 end) as $value |
+                    {
+                    name         : "solr_collections_shard_state",
+                    type         : "GAUGE",
+                    help         : "See following URL: https://lucene.apache.org/solr/guide/collections-api.html#clusterstatus",
+                    label_names  : ["collection","shard"],
+                    label_values : [$collection,$shard],
+                    value        : $value
+                    }
+                </str>
+                <str>
+                    .cluster.collections | to_entries | .[] | . as $object |
+                    $object.key as $collection |
+                    $object.value.shards | to_entries | .[] | . as $shard_obj |
+                    $shard_obj.key as $shard |
+                    $shard_obj.value.replicas | to_entries | .[] | . as $replica_obj |
+                    $replica_obj.key as $replica_name |
+                    $replica_obj.value.core as $core |
+                    $core[$collection + "_" + $shard + "_" | length:] as $replica |
+                    $replica_obj.value.base_url as $base_url |
+                    $replica_obj.value.node_name as $node_name |
+                    $replica_obj.value.type as $type |
+                    (if $replica_obj.value.state == "active" then 1.0 else 0.0 end) as $value |
+                    {
+                    name         : "solr_collections_replica_state",
+                    type         : "GAUGE",
+                    help         : "See following URL: https://lucene.apache.org/solr/guide/collections-api.html#clusterstatus",
+                    label_names  : ["collection", "shard", "replica", "replica_name", "core", "node_name", "type"],
+                    label_values : [$collection, $shard, $replica, $replica_name, $core, $node_name, $type],
+                    value        : $value
+                    }
+                </str>
+                </arr>
+            </lst>
+            </collections>
+        </rules>
+    </config>
+---
+# Source: solr-base/templates/zk-config.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: zk-test
+  namespace: default
+data:
+  ok: |
+    #!/bin/sh
+    zkServer.sh status $ZK_CONF_DIR/zoo.cfg
+
+  ready: |
+    #!/bin/sh
+    echo ruok | nc 127.0.0.1 ${1:-2181}
+
+  run: |
+    #!/bin/bash
+
+    set -a
+    ROOT=$(echo /apache-zookeeper-*)
+
+    ZK_USER=${ZK_USER:-"zookeeper"}
+    ZK_LOG_LEVEL=${ZK_LOG_LEVEL:-"INFO"}
+    ZK_DATA_DIR=${ZK_DATA_DIR:-"/data"}
+    ZK_DATA_LOG_DIR=${ZK_DATA_LOG_DIR:-"/data/log"}
+    ZK_CONF_DIR=${ZK_CONF_DIR:-"/conf"}
+    ZK_CLIENT_PORT=${ZK_CLIENT_PORT:-2181}
+    ZK_SERVER_PORT=${ZK_SERVER_PORT:-2888}
+    ZK_ELECTION_PORT=${ZK_ELECTION_PORT:-3888}
+    ZK_TICK_TIME=${ZK_TICK_TIME:-2000}
+    ZK_INIT_LIMIT=${ZK_INIT_LIMIT:-10}
+    ZK_SYNC_LIMIT=${ZK_SYNC_LIMIT:-5}
+    ZK_HEAP_SIZE=${ZK_HEAP_SIZE:-2G}
+    ZK_MAX_CLIENT_CNXNS=${ZK_MAX_CLIENT_CNXNS:-60}
+    ZK_MIN_SESSION_TIMEOUT=${ZK_MIN_SESSION_TIMEOUT:-$((ZK_TICK_TIME*2))}
+    ZK_MAX_SESSION_TIMEOUT=${ZK_MAX_SESSION_TIMEOUT:-$((ZK_TICK_TIME*20))}
+    ZK_SNAP_RETAIN_COUNT=${ZK_SNAP_RETAIN_COUNT:-3}
+    ZK_PURGE_INTERVAL=${ZK_PURGE_INTERVAL:-0}
+    ZOO_METRICS_PROVIDER_CLASS=${ZOO_METRICS_PROVIDER_CLASS:-"org.apache.zookeeper.metrics.prometheus.PrometheusMetricsProvider"}
+    ZOO_METRICS_PROVIDER_PORT=${ZOO_METRICS_PROVIDER_PORT:-7070}
+    ID_FILE="$ZK_DATA_DIR/myid"
+    ZK_CONFIG_FILE="$ZK_CONF_DIR/zoo.cfg"
+    LOG4J_PROPERTIES="$ZK_CONF_DIR/log4j.properties"
+    HOST=$(hostname)
+    DOMAIN=`hostname -d`
+    ZOOCFG=zoo.cfg
+    ZOOCFGDIR=$ZK_CONF_DIR
+    JVMFLAGS="-Xmx$ZK_HEAP_SIZE -Xms$ZK_HEAP_SIZE"
+
+    APPJAR=$(echo $ROOT/*jar)
+    CLASSPATH="${ROOT}/lib/*:${APPJAR}:${ZK_CONF_DIR}:"
+
+    if [[ $HOST =~ (.*)-([0-9]+)$ ]]; then
+        NAME=${BASH_REMATCH[1]}
+        ORD=${BASH_REMATCH[2]}
+        MY_ID=$((ORD+1))
+    else
+        echo "Failed to extract ordinal from hostname $HOST"
+        exit 1
+    fi
+
+    # create respective data and conf directories if not created
+    mkdir -p $ZK_DATA_DIR
+    mkdir -p $ZK_DATA_LOG_DIR
+    mkdir -p $ZK_CONF_DIR
+
+    # delete config files if created before
+    rm -rf $ID_FILE $ZK_CONFIG_FILE
+
+    sh -c "echo $MY_ID >> $ID_FILE"
+    sh -c "echo clientPort='$ZK_CLIENT_PORT' >> $ZK_CONFIG_FILE &&
+    echo dataDir='$ZK_DATA_DIR' >> $ZK_CONFIG_FILE &&
+    echo tickTime='$ZK_TICK_TIME' >> $ZK_CONFIG_FILE &&
+    echo initLimit='$ZK_INIT_LIMIT' >> $ZK_CONFIG_FILE &&
+    echo syncLimit='$ZK_SYNC_LIMIT' >> $ZK_CONFIG_FILE &&
+    echo maxClientCnxns='$ZK_MAX_CLIENT_CNXNS' >> $ZK_CONFIG_FILE &&
+    echo minSessionTimeout='$ZK_MIN_SESSION_TIMEOUT' >> $ZK_CONFIG_FILE &&
+    echo maxSessionTimeout='$ZK_MAX_SESSION_TIMEOUT' >> $ZK_CONFIG_FILE &&
+    echo autopurge.snapRetainCount='$ZK_SNAP_RETAIN_COUNT' >> $ZK_CONFIG_FILE &&
+    echo autopurge.purgeInterval='$ZK_PURGE_INTERVAL' >> $ZK_CONFIG_FILE &&
+    echo metricsProvider.className='$ZOO_METRICS_PROVIDER_CLASS' >> $ZK_CONFIG_FILE &&
+    echo metricsProvider.httpPort='$ZOO_METRICS_PROVIDER_PORT' >> $ZK_CONFIG_FILE &&
+    echo 4lw.commands.whitelist=* >> $ZK_CONFIG_FILE"
+
+    for (( i=1; i<=$ZK_REPLICAS; i++ ))
+    do
+        sh -c "echo 'server.$i=$NAME-$((i-1)).$DOMAIN:$ZK_SERVER_PORT:$ZK_ELECTION_PORT' >> $ZK_CONFIG_FILE"
+    done
+
+    cat $ZK_CONFIG_FILE
+
+    rm -f $LOG4J_PROPERTIES
+
+    echo "zookeeper.root.logger=$ZK_LOG_LEVEL, CONSOLE" >> $LOG4J_PROPERTIES
+    echo "zookeeper.console.threshold=$ZK_LOG_LEVEL" >> $LOG4J_PROPERTIES
+    echo "zookeeper.log.threshold=$ZK_LOG_LEVEL" >> $LOG4J_PROPERTIES
+    echo "zookeeper.log.dir=$ZK_DATA_LOG_DIR" >> $LOG4J_PROPERTIES
+    echo "zookeeper.log.file=zookeeper.log" >> $LOG4J_PROPERTIES
+    echo "zookeeper.log.maxfilesize=256MB" >> $LOG4J_PROPERTIES
+    echo "zookeeper.log.maxbackupindex=10" >> $LOG4J_PROPERTIES
+    echo "zookeeper.tracelog.dir=$ZK_DATA_LOG_DIR" >> $LOG4J_PROPERTIES
+    echo "zookeeper.tracelog.file=zookeeper_trace.log" >> $LOG4J_PROPERTIES
+    echo "log4j.rootLogger=\${zookeeper.root.logger}" >> $LOG4J_PROPERTIES
+    echo "log4j.appender.CONSOLE=org.apache.log4j.ConsoleAppender" >> $LOG4J_PROPERTIES
+    echo "log4j.appender.CONSOLE.Threshold=\${zookeeper.console.threshold}" >> $LOG4J_PROPERTIES
+    echo "log4j.appender.CONSOLE.layout=org.apache.log4j.PatternLayout" >> $LOG4J_PROPERTIES
+    echo "log4j.appender.CONSOLE.layout.ConversionPattern=%d{ISO8601} [myid:%X{myid}] - %-5p [%t:%C{1}@%L] - %m%n" >> $LOG4J_PROPERTIES
+
+
+    if [ -n "$JMXDISABLE" ]
+    then
+        MAIN=org.apache.zookeeper.server.quorum.QuorumPeerMain
+    else
+        MAIN="-Dcom.sun.management.jmxremote -Dcom.sun.management.jmxremote.port=$JMXPORT -Dcom.sun.management.jmxremote.authenticate=$JMXAUTH -Dcom.sun.management.jmxremote.ssl=$JMXSSL -Dzookeeper.jmx.log4j.disable=$JMXLOG4J org.apache.zookeeper.server.quorum.QuorumPeerMain"
+    fi
+
+    set -x
+    exec java -cp "$CLASSPATH" $JVMFLAGS $MAIN $ZK_CONFIG_FILE
+---
+# Source: solr-base/templates/solr-service-account.yaml
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1beta1
+metadata:
+  namespace: default
+  labels:
+    app: solr-test
+  name: solr-default
+rules:
+  - apiGroups: [""]
+    resources: [ "nodes" ]
+    verbs: [ "get" ]
+---
+# Source: solr-base/templates/solr-service-account.yaml
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1beta1
+metadata:
+  namespace: default
+  labels:
+    app: solr-test
+  name: solr-default
+subjects:
+  - kind: ServiceAccount
+    name: solr-test
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: solr-default
+  apiGroup: rbac.authorization.k8s.io
+---
+# Source: solr-base/templates/apiVersion: v1.yml
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/component: prometheus
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/part-of: kube-prometheus
+    app.kubernetes.io/version: 2.27.1
+    prometheus: k8s
+  name: prometheus-k8s
+  namespace: monitoring
+spec:
+  type: LoadBalancer
+  ports:
+    - port: 9090
+      targetPort: 9090
+  selector:
+    app: prometheus
+    app.kubernetes.io/component: prometheus
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/part-of: kube-prometheus
+    prometheus: k8s
+---
+# Source: solr-base/templates/solr-cs-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: solr-cs-test
+  namespace: default
+  labels:
+    app: solr-test
+spec:
+  ports:
+  - port: 80
+    name: http-solr-cs
+    targetPort: 8983
+  selector:
+    app: solr-test
+---
+# Source: solr-base/templates/solr-exporter-svc.yaml
+apiVersion: "v1"
+kind: "Service"
+metadata:
+  name: solr-exporter-test
+  namespace: default
+  labels:
+    app: solr-test
+  annotations:
+    prometheus.io/port: "9983"
+    prometheus.io/scrape: "true"
+spec:
+  type: "ClusterIP"
+  ports:
+  - port: 9983
+    name: "solr-client"
+  selector:
+    app: solr-test
+---
+# Source: solr-base/templates/solr-external-svc.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: solr-external-test
+  namespace: default
+  labels:
+    app: solr-test
+spec:
+  type: LoadBalancer
+  ports:
+    - port: 8983
+      targetPort: 8983  
+  selector:
+    app: solr-test
+---
+# Source: solr-base/templates/solr-hs-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: solr-hs-test
+  namespace: default
+  labels:
+    app: solr-test
+spec:
+  ports:
+  - port: 8983
+    name: http-solr-hs
+  # We want all pods in the StatefulSet to have their addresses published
+  # so that nodes can talk to each other before the readiness probes can pass
+  publishNotReadyAddresses: true
+  clusterIP: None
+  selector:
+    app: solr-test
+---
+# Source: solr-base/templates/zk-cs-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: zk-cs-test
+  namespace: default
+  labels:
+    app: zk-test
+spec:
+  ports:
+  - port: 2181
+    name: client
+  selector:
+    app: zk-test
+---
+# Source: solr-base/templates/zk-external-svc.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: zk-external-test
+  namespace: default
+  labels:
+    app: zk-test
+spec:
+  type: LoadBalancer
+  ports:
+    - port: 2181
+      targetPort: 2181  
+  selector:
+    app: zk-test
+---
+# Source: solr-base/templates/zk-hs-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: zk-hs-test
+  namespace: default
+  labels:
+    app: zk-test
+spec:
+  ports:
+  - port: 2888
+    name: server
+  - port: 3888
+    name: leader-election
+  - port: 2181
+    name: client
+  # We want all pods in the StatefulSet to have their addresses published
+  # so that nodes can talk to each other before the readiness probes can pass
+  publishNotReadyAddresses: true
+  clusterIP: None
+  selector:
+    app: zk-test
+---
+# Source: solr-base/templates/solr-request-count-hpa.yaml
+apiVersion: autoscaling/v2beta1
+kind: HorizontalPodAutoscaler
+metadata:
+  name: solr-request-count-test
+  namespace: default
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: solr-test
+  minReplicas: 2
+  maxReplicas: 3
+  metrics:
+  - type: Pods
+    pods:
+      metricName: solr_metrics_core_distrib_select_one_minute_rate
+      targetAverageValue: 10
+---
+# Source: solr-base/templates/solr-statefulset.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: solr-test
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      app: solr-test
+  serviceName: solr-hs-test
+  replicas: 2
+  updateStrategy:
+    type: RollingUpdate
+  podManagementPolicy: Parallel
+  template:
+    metadata:
+      labels:
+        app: solr-test
+        component: solr
+      annotations:
+        prometheus.io/port: "9983"
+        prometheus.io/scrape: "true"
+    spec:
+      serviceAccountName: solr-test
+      terminationGracePeriodSeconds: 600
+      #TODO: put appropriate label for node selector
+      #nodeSelector:
+        #klevu-search/instance-type: m.4xlarge
+      # securityContext:
+      #   fsGroup: 8983
+      #   runAsUser: 8983
+      #   runAsGroup: 8983
+      #   runAsNonRoot: true
+#      affinity:
+#        podAntiAffinity:
+#          requiredDuringSchedulingIgnoredDuringExecution:
+#            - labelSelector:
+#                matchExpressions:
+#                  - key: "app"
+#                    operator: In
+#                    values:
+#                      - solr-test
+#                  - key: "app"
+#                    operator: In
+#                    values:
+#                      - zk-test
+#              topologyKey: "kubernetes.io/hostname"
+#          preferredDuringSchedulingIgnoredDuringExecution:
+#            - weight: 1
+#              podAffinityTerm:
+#                labelSelector:
+#                  matchExpressions:
+#                    - key: "app"
+#                      operator: In
+#                      values:
+#                        - solr-test
+#                topologyKey: "failure-domain.beta.kubernetes.io/zone"
+      volumes:
+        - name: solrlogs
+          emptyDir: {}
+        - name: shared
+          emptyDir: {}
+        - name: features
+          emptyDir: {}     
+        - name: config-volume
+          configMap:
+            name: solr-exporter-config
+      imagePullSecrets:
+        - name: "artifactory"
+      containers:
+        - name: solr
+          image: "sarkaramrit2/klevu-solr:latest"
+          imagePullPolicy: Always
+          # securityContext:
+          #   allowPrivilegeEscalation: false
+          resources:
+            limits:
+              memory: 512M
+            requests:
+              cpu: 1.2
+              memory: 512M
+          ports:
+          - containerPort: 8983
+            name: client
+          env:
+            # this variable is used to trigger the restart on pods when storage get changed
+            - name: SOLR_STORAGE
+              value: "5Gi"
+            - name: SOLR_OPTS
+              value: "-Xmx256m -Xms256m"
+            - name: SOLR_HOME
+              value: "/opt/solr/server/solr"
+            - name: SOLR_PORT
+              value: "8983"
+            - name: ZK_HOST
+              value: "zk-test-0.zk-hs-test.default.svc.cluster.local:2181,zk-test-1.zk-hs-test.default.svc.cluster.local:2181,zk-test-2.zk-hs-test.default.svc.cluster.local:2181"
+            - name: SOLR_LOGS_DIR
+              value: "/opt/solr/logs"
+            - name: SOLR_DATA_HOME
+              value: "/opt/solr/data"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: SOLR_STOP_WAIT
+              value: "600"
+            - name: SOLR_LOG_LEVEL
+              value: "INFO"
+          livenessProbe:
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            failureThreshold: 6
+            httpGet:
+              path: /solr/admin/info/health
+              port: 8983
+          readinessProbe:
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            httpGet:
+              path: /solr/admin/info/health
+              port: 8983
+          volumeMounts:
+            - name: data
+              mountPath: /opt/solr/data
+            - name: solrlogs
+              mountPath: /opt/solr/logs
+            - name: features
+              mountPath: /opt/solr/server/solr/features
+        - name: exporter
+          image: "sarkaramrit2/klevu-solr:latest"
+          imagePullPolicy: Always
+          resources:
+            limits:
+              cpu: 400m
+              memory: 512M
+            requests:
+              cpu: 200m
+              memory: 256M
+          ports:
+          - containerPort: 9983
+            name: solr-client
+          command:
+            - "/opt/solr/contrib/prometheus-exporter/bin/solr-exporter"
+            - "-p"
+            - "9983"
+            - "-b"
+            - "http://localhost:8983/solr"
+            - "-n"
+            - "7"
+            - "-f"
+            - "/opt/solr-exporter/custom-config/solr-exporter-config.xml"
+          livenessProbe:
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            httpGet:
+              path: "/metrics"
+              port: 9983
+          readinessProbe:
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            httpGet:
+              path: "/metrics"
+              port: 9983
+          volumeMounts:
+          - name: config-volume
+            mountPath: /opt/solr-exporter/custom-config
+      initContainers:
+        - name: check-zk
+          image: busybox:latest
+          command: ['sh', '-c', 'COUNTER=0; while [  $COUNTER -lt 30 ]; do for i in "zk-test-0.zk-hs-test.default.svc.cluster.local" "zk-test-1.zk-hs-test.default.svc.cluster.local" "zk-test-2.zk-hs-test.default.svc.cluster.local"; do mode=$(echo srvr | nc $i 2181 | grep "Mode"); if [ "$mode" == "Mode: leader" ]; then exit 0; fi; done; let COUNTER=COUNTER+1; sleep 2; done; echo "Did NOT see a ZK leader after 60 secs!"; exit 1;']
+  volumeClaimTemplates:
+    - metadata:
+        namespace: default
+        name: data
+        labels:
+          app: solr-test
+      spec:
+#        storageClassName: csi-cinder-high-speed
+        accessModes:
+          - "ReadWriteOnce"
+        resources:
+          requests:
+            storage: 1Gi
+    - metadata:
+        namespace: default
+        name: redis-data
+        labels:
+          app: solr-test
+      spec:
+#        storageClassName: csi-cinder-high-speed
+        accessModes:
+          - "ReadWriteOnce"
+        resources:
+          requests:
+            storage: 5Gi
+---
+# Source: solr-base/templates/zk-statefulset.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: zk-test
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      app: zk-test
+  serviceName: zk-hs-test
+  replicas: 3
+  updateStrategy:
+    type: RollingUpdate
+  podManagementPolicy: Parallel
+  template:
+    metadata:
+      labels:
+        app: zk-test
+        component: zk
+    spec:
+      #TODO: put appropriate label for node selector
+      #nodeSelector:
+        #klevu-search/instance-type: m.4xlarge
+#      affinity:
+#        podAntiAffinity:
+#          requiredDuringSchedulingIgnoredDuringExecution:
+#            - labelSelector:
+#                matchExpressions:
+#                  - key: "app"
+#                    operator: In
+#                    values:
+#                      - zk-test
+#                  - key: "app"
+#                    operator: In
+#                    values:
+#                      - solr-test
+#              topologyKey: "kubernetes.io/hostname"
+#          preferredDuringSchedulingIgnoredDuringExecution:
+#            - weight: 1
+#              podAffinityTerm:
+#                labelSelector:
+#                  matchExpressions:
+#                    - key: "app"
+#                      operator: In
+#                      values:
+#                        - zk-test
+#                topologyKey: "failure-domain.beta.kubernetes.io/zone"
+      containers:
+        - name: kubernetes-zookeeper
+          image: "zookeeper:3.5.6"
+          imagePullPolicy: IfNotPresent
+          command:
+            - "/bin/bash"
+            - "-xec"
+            - "/config-scripts/run"
+          ports:
+            - name: client
+              containerPort: 2181
+              protocol: TCP
+
+            - name: election
+              containerPort: 3888
+              protocol: TCP
+
+            - name: server
+              containerPort: 2888
+              protocol: TCP
+
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - /config-scripts/ok
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 2
+            successThreshold: 1
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - /config-scripts/ready
+            initialDelaySeconds: 30
+            periodSeconds: 60
+            timeoutSeconds: 10
+            failureThreshold: 3
+            successThreshold: 1
+          env:
+            - name: ZK_DATA_DIR
+              value: "/var/lib/zookeeper"
+            - name: ZK_CONF_DIR
+              value: "/var/lib/zookeeper/conf"
+            - name: JMXAUTH
+              value: "false"
+            - name: JMXDISABLE
+              value: "true"
+            - name: JMXPORT
+              value: "1099"
+            - name: JMXSSL
+              value: "false"
+            - name: ZK_DATA_LOG_DIR
+              value: "/var/lib/zookeeper/log"
+            - name: ZK_REPLICAS
+              value: "3"
+            - name: ZK_SYNC_LIMIT
+              value: "10"
+            - name: ZK_TICK_TIME
+              value: "2000"
+            - name: ZOO_AUTOPURGE_PURGEINTERVAL
+              value: "12"
+            - name: ZOO_AUTOPURGE_SNAPRETAINCOUNT
+              value: "3"
+            - name: ZOO_INIT_LIMIT
+              value: "5"
+            - name: ZOO_MAX_CLIENT_CNXNS
+              value: "60"
+            - name: ZOO_PORT
+              value: "2181"
+            - name: ZOO_STANDALONE_ENABLED
+              value: "false"
+            - name: ZOO_TICK_TIME
+              value: "2000"
+            - name: ZK_HEAP_SIZE
+              value: "512M"
+            - name: ZOO_METRICS_PROVIDER_CLASS
+              value: "org.apache.zookeeper.metrics.prometheus.PrometheusMetricsProvider"
+            - name: ZOO_METRICS_PROVIDER_PORT
+              value: "7070"
+          resources:
+            {}
+          volumeMounts:
+            - name: datadir
+              mountPath: /var/lib/zookeeper
+            - name: config
+              mountPath: /config-scripts
+      volumes:
+        - name: config
+          configMap:
+            name: zk-test
+            defaultMode: 0555
+      securityContext:
+        runAsUser: 1000
+        fsGroup: 1000
+  volumeClaimTemplates:
+    - metadata:
+        namespace: default
+        name: datadir
+        labels:
+          app: zk-test
+      spec:
+#        storageClassName: csi-cinder-high-speed
+        accessModes:
+          - "ReadWriteOnce"
+        resources:
+          requests:
+            storage: "5Gi"
+---
+# Source: solr-base/templates/solr-metrics-service-monitor.yaml
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: solr
+spec:
+  selector:
+    matchLabels:
+      app: solr-test
+  endpoints:
+  - port: solr-client

@@ -1,0 +1,190 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: solr-{{ .Values.clusterId }}
+  namespace: {{ .Values.namespace }}
+spec:
+  selector:
+    matchLabels:
+      app: solr-{{ .Values.clusterId }}
+  serviceName: solr-hs-{{ .Values.clusterId }}
+  replicas: {{ .Values.replicaCount }}
+  updateStrategy:
+    type: RollingUpdate
+  podManagementPolicy: Parallel
+  template:
+    metadata:
+      labels:
+        app: solr-{{ .Values.clusterId }}
+        component: solr
+      annotations:
+        prometheus.io/port: "9983"
+        prometheus.io/scrape: "true"
+    spec:
+      serviceAccountName: solr-{{ .Values.clusterId }}
+      terminationGracePeriodSeconds: 600
+      #TODO: put appropriate label for node selector
+      #nodeSelector:
+        #klevu-search/instance-type: {{ .Values.machinename }}
+      # securityContext:
+      #   fsGroup: 8983
+      #   runAsUser: 8983
+      #   runAsGroup: 8983
+      #   runAsNonRoot: true
+#      affinity:
+#        podAntiAffinity:
+#          requiredDuringSchedulingIgnoredDuringExecution:
+#            - labelSelector:
+#                matchExpressions:
+#                  - key: "app"
+#                    operator: In
+#                    values:
+#                      - solr-{{ .Values.clusterId }}
+#                  - key: "app"
+#                    operator: In
+#                    values:
+#                      - zk-{{ .Values.clusterId }}
+#              topologyKey: "kubernetes.io/hostname"
+#          preferredDuringSchedulingIgnoredDuringExecution:
+#            - weight: 1
+#              podAffinityTerm:
+#                labelSelector:
+#                  matchExpressions:
+#                    - key: "app"
+#                      operator: In
+#                      values:
+#                        - solr-{{ .Values.clusterId }}
+#                topologyKey: "failure-domain.beta.kubernetes.io/zone"
+      volumes:
+        - name: solrlogs
+          emptyDir: {}
+        - name: shared
+          emptyDir: {}
+        - name: features
+          emptyDir: {}     
+        - name: config-volume
+          configMap:
+            name: solr-exporter-config
+      imagePullSecrets:
+        - name: "artifactory"
+      containers:
+        - name: solr
+          image: "{{ .Values.repository }}/{{ .Values.image.name }}:{{ index .Values.image (printf "tag_%s" .Values.image.tag) }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # securityContext:
+          #   allowPrivilegeEscalation: false
+          resources:
+{{ toYaml .Values.solrResources | indent 12 }}
+          ports:
+          - containerPort: 8983
+            name: client
+          env:
+            # this variable is used to trigger the restart on pods when storage get changed
+            - name: SOLR_STORAGE
+              value: {{ .Values.solrStorageSize | quote}}
+            - name: SOLR_OPTS
+              value: {{ .Values.solrOpts | quote}}
+            - name: SOLR_HOME
+              value: "/opt/solr/server/solr"
+            - name: SOLR_PORT
+              value: "8983"
+            - name: ZK_HOST
+              value: {{printf "%s-%s-%s-%s.%s.svc.cluster.local:2181,%s-%s-%s-%s.%s.svc.cluster.local:2181,%s-%s-%s-%s.%s.svc.cluster.local:2181" "zk" .Values.clusterId "0.zk-hs" .Values.clusterId .Values.namespace "zk" .Values.clusterId "1.zk-hs" .Values.clusterId .Values.namespace "zk" .Values.clusterId "2.zk-hs" .Values.clusterId .Values.namespace | quote}}
+            - name: SOLR_LOGS_DIR
+              value: "/opt/solr/logs"
+            - name: SOLR_DATA_HOME
+              value: "/opt/solr/data"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: SOLR_STOP_WAIT
+              value: "600"
+            - name: SOLR_LOG_LEVEL
+              value: {{printf "%s" .Values.solrLogLevel | quote }}
+          livenessProbe:
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            failureThreshold: 6
+            httpGet:
+              path: /solr/admin/info/health
+              port: 8983
+          readinessProbe:
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            httpGet:
+              path: /solr/admin/info/health
+              port: 8983
+          volumeMounts:
+            - name: data
+              mountPath: /opt/solr/data
+            - name: solrlogs
+              mountPath: /opt/solr/logs
+            - name: features
+              mountPath: /opt/solr/server/solr/features
+        - name: exporter
+          image: "{{ .Values.repository }}/{{ .Values.image.name }}:{{ index .Values.image (printf "tag_%s" .Values.image.tag) }}"
+          imagePullPolicy: Always
+          resources:
+{{ toYaml .Values.exporterResources | indent 12 }}
+          ports:
+          - containerPort: 9983
+            name: solr-client
+          command:
+            - "/opt/solr/contrib/prometheus-exporter/bin/solr-exporter"
+            - "-p"
+            - "9983"
+            - "-b"
+            - "http://localhost:8983/solr"
+            - "-n"
+            - "7"
+            - "-f"
+            - "/opt/solr-exporter/custom-config/solr-exporter-config.xml"
+          livenessProbe:
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            httpGet:
+              path: "/metrics"
+              port: 9983
+          readinessProbe:
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            httpGet:
+              path: "/metrics"
+              port: 9983
+          volumeMounts:
+          - name: config-volume
+            mountPath: /opt/solr-exporter/custom-config
+      initContainers:
+        - name: check-zk
+          image: busybox:latest
+          command: ['sh', '-c', 'COUNTER=0; while [  $COUNTER -lt 30 ]; do for i in {{printf "%s-%s-%s-%s.%s.svc.cluster.local" "zk" .Values.clusterId "0.zk-hs" .Values.clusterId .Values.namespace | quote}} {{printf "%s-%s-%s-%s.%s.svc.cluster.local" "zk" .Values.clusterId "1.zk-hs" .Values.clusterId .Values.namespace | quote}} {{printf "%s-%s-%s-%s.%s.svc.cluster.local" "zk" .Values.clusterId "2.zk-hs" .Values.clusterId .Values.namespace | quote}}; do mode=$(echo srvr | nc $i 2181 | grep "Mode"); if [ "$mode" == "Mode: leader" ]; then exit 0; fi; done; let COUNTER=COUNTER+1; sleep 2; done; echo "Did NOT see a ZK leader after 60 secs!"; exit 1;']
+  volumeClaimTemplates:
+    - metadata:
+        namespace: {{ .Values.namespace }}
+        name: data
+        labels:
+          app: solr-{{ .Values.clusterId }}
+      spec:
+#        storageClassName: csi-cinder-high-speed
+        accessModes:
+          - "ReadWriteOnce"
+        resources:
+          requests:
+            storage: 1Gi
+    - metadata:
+        namespace: {{ .Values.namespace }}
+        name: redis-data
+        labels:
+          app: solr-{{ .Values.clusterId }}
+      spec:
+#        storageClassName: csi-cinder-high-speed
+        accessModes:
+          - "ReadWriteOnce"
+        resources:
+          requests:
+            storage: {{ .Values.solrStorageSize }}

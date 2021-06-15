@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: zk-hs-{{ .Values.clusterId }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: zk-{{ .Values.clusterId }}
+spec:
+  ports:
+  - port: 2888
+    name: server
+  - port: 3888
+    name: leader-election
+  - port: 2181
+    name: client
+  # We want all pods in the StatefulSet to have their addresses published
+  # so that nodes can talk to each other before the readiness probes can pass
+  publishNotReadyAddresses: true
+  clusterIP: None
+  selector:
+    app: zk-{{ .Values.clusterId }}

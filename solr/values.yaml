@@ -1,0 +1,60 @@
+clusterId: test
+projectId: solrcloud
+namespace: default
+replicaCount: 2
+zkServers: 3
+repository: "sarkaramrit2"
+
+image:
+  name: klevu-solr
+  tag: "latest"
+  pullPolicy: Always
+  tag_latest: latest
+
+solrLogLevel: INFO
+
+zkResources:
+  limits:
+    cpu: 0.8
+    memory: 128M
+  requests:
+    cpu: 500m
+    memory: 128M
+
+exporterResources:
+  limits:
+    cpu: 400m
+    memory: 512M
+  requests:
+    cpu: 200m
+    memory: 256M
+
+zkStorage:
+  accessMode: ReadWriteOnce
+  size: 5Gi
+  storageClassName: ssd
+
+autoscaling:
+  cpu: false
+  request:
+    count: true
+    time: false
+
+machinename: m.4xlarge
+minNodes: 2
+maxNodes: 3
+targetCpuUsage: 99
+targetTotalRequests: 10
+targetRequestTime: 3000000m
+
+solrResources:
+  limits:
+    memory: 512M
+  requests:
+    cpu: 1.2
+    memory: 512M
+
+# size must end with Gi (look at KubernetesService)
+solrStorageSize: 5Gi
+
+solrOpts: -Xmx256m -Xms256m

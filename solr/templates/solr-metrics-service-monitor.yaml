@@ -1,0 +1,10 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: solr
+spec:
+  selector:
+    matchLabels:
+      app: solr-{{ .Values.clusterId }}
+  endpoints:
+  - port: solr-client

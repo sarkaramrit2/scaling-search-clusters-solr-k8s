@@ -1,0 +1,23 @@
+{{- if .Values }}
+  {{- if .Values.autoscaling.request.count}}
+    {{- if (eq true .Values.autoscaling.request.count) }}
+apiVersion: autoscaling/v2beta1
+kind: HorizontalPodAutoscaler
+metadata:
+  name: solr-request-count-{{ .Values.clusterId }}
+  namespace: {{ .Values.namespace }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: solr-{{ .Values.clusterId }}
+  minReplicas: {{ .Values.minNodes }}
+  maxReplicas: {{ .Values.maxNodes }}
+  metrics:
+  - type: Pods
+    pods:
+      metricName: solr_metrics_core_distrib_select_one_minute_rate
+      targetAverageValue: {{ .Values.targetTotalRequests }}
+    {{- end}}
+  {{- end}}
+{{- end}}

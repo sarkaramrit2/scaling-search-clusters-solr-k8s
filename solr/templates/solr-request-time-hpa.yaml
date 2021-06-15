@@ -1,0 +1,23 @@
+{{- if .Values }}
+  {{- if .Values.autoscaling.request.time}}
+    {{- if (eq true .Values.autoscaling.request.time) }}
+apiVersion: autoscaling/v2beta1
+kind: HorizontalPodAutoscaler
+metadata:
+  name: solr-request-latency-{{ .Values.clusterId }}
+  namespace: {{ .Values.namespace }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: solr-{{ .Values.clusterId }}
+  minReplicas: {{ .Values.minNodes }}
+  maxReplicas: {{ .Values.maxNodes }}
+  metrics:
+  - type: Pods
+    pods:
+      metricName: solr_metrics_core_distrib_latency
+      targetAverageValue: {{ .Values.targetRequestTime }}
+    {{- end}}
+  {{- end}}
+{{- end}}

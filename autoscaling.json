@@ -1,0 +1,115 @@
+{
+  "cluster-policy": [
+    {
+      "node": "#ANY",
+      "replica": "<2",
+      "shard": "#EACH"
+    }
+  ],
+  "triggers": {
+    ".auto_add_replicas": {
+      "name": ".auto_add_replicas",
+      "event": "nodeLost",
+      "waitFor": 120,
+      "enabled": true,
+      "actions": [
+        {
+          "name": "auto_add_replicas_plan",
+          "class": "solr.AutoAddReplicasPlanAction"
+        },
+        {
+          "name": "execute_plan",
+          "class": "solr.ExecutePlanAction"
+        }
+      ]
+    },
+    "node_added_trigger": {
+      "name": "node_added_trigger",
+      "event": "nodeAdded",
+      "waitFor": 60,
+      "enabled": true,
+      "preferredOperation": "ADDREPLICA",
+      "actions": [
+        {
+          "name": "compute_plan",
+          "class": "solr.ComputePlanAction"
+        },
+        {
+          "name": "execute_plan",
+          "class": "solr.ExecutePlanAction"
+        }
+      ]
+    },
+    "node_lost_trigger": {
+      "name": "node_lost_trigger",
+      "event": "nodeLost",
+      "waitFor": 120,
+      "enabled": true,
+      "preferredOperation": "DELETENODE",
+      "actions": [
+        {
+          "name": "compute_plan",
+          "class": "solr.ComputePlanAction"
+        },
+        {
+          "name": "execute_plan",
+          "class": "solr.ExecutePlanAction"
+        }
+      ]
+    },    
+    ".scheduled_maintenance": {
+      "name": ".scheduled_maintenance",
+      "event": "scheduled",
+      "startTime": "NOW",
+      "every": "+1DAY",
+      "enabled": true,
+      "actions": [
+        {
+          "name": "inactive_shard_plan",
+          "class": "solr.InactiveShardPlanAction"
+        },
+        {
+          "name": "inactive_markers_plan",
+          "class": "solr.InactiveMarkersPlanAction"
+        },
+        {
+          "name": "execute_plan",
+          "class": "solr.ExecutePlanAction"
+        }
+      ]
+    }
+  },
+  "listeners": {
+    ".auto_add_replicas.system": {
+      "beforeAction": [],
+      "afterAction": [],
+      "stage": [
+        "STARTED",
+        "ABORTED",
+        "SUCCEEDED",
+        "FAILED",
+        "BEFORE_ACTION",
+        "AFTER_ACTION",
+        "IGNORED"
+      ],
+      "trigger": ".auto_add_replicas",
+      "class": "org.apache.solr.cloud.autoscaling.SystemLogListener"
+    },
+    ".scheduled_maintenance.system": {
+      "beforeAction": [],
+      "afterAction": [],
+      "stage": [
+        "STARTED",
+        "ABORTED",
+        "SUCCEEDED",
+        "FAILED",
+        "BEFORE_ACTION",
+        "AFTER_ACTION",
+        "IGNORED"
+      ],
+      "trigger": ".scheduled_maintenance",
+      "class": "org.apache.solr.cloud.autoscaling.SystemLogListener"
+    }
+  },
+  "properties": {}
+}

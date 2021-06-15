@@ -1,0 +1,157 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: zk-{{ .Values.clusterId }}
+  namespace: {{ .Values.namespace }}
+spec:
+  selector:
+    matchLabels:
+      app: zk-{{ .Values.clusterId }}
+  serviceName: zk-hs-{{ .Values.clusterId }}
+  replicas: {{ .Values.zkServers }}
+  updateStrategy:
+    type: RollingUpdate
+  podManagementPolicy: Parallel
+  template:
+    metadata:
+      labels:
+        app: zk-{{ .Values.clusterId }}
+        component: zk
+    spec:
+      #TODO: put appropriate label for node selector
+      #nodeSelector:
+        #klevu-search/instance-type: {{ .Values.machinename }}
+#      affinity:
+#        podAntiAffinity:
+#          requiredDuringSchedulingIgnoredDuringExecution:
+#            - labelSelector:
+#                matchExpressions:
+#                  - key: "app"
+#                    operator: In
+#                    values:
+#                      - zk-{{ .Values.clusterId }}
+#                  - key: "app"
+#                    operator: In
+#                    values:
+#                      - solr-{{ .Values.clusterId }}
+#              topologyKey: "kubernetes.io/hostname"
+#          preferredDuringSchedulingIgnoredDuringExecution:
+#            - weight: 1
+#              podAffinityTerm:
+#                labelSelector:
+#                  matchExpressions:
+#                    - key: "app"
+#                      operator: In
+#                      values:
+#                        - zk-{{ .Values.clusterId }}
+#                topologyKey: "failure-domain.beta.kubernetes.io/zone"
+      containers:
+        - name: kubernetes-zookeeper
+          image: "zookeeper:3.5.6"
+          imagePullPolicy: IfNotPresent
+          command:
+            - "/bin/bash"
+            - "-xec"
+            - "/config-scripts/run"
+          ports:
+            - name: client
+              containerPort: 2181
+              protocol: TCP
+
+            - name: election
+              containerPort: 3888
+              protocol: TCP
+
+            - name: server
+              containerPort: 2888
+              protocol: TCP
+
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - /config-scripts/ok
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 2
+            successThreshold: 1
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - /config-scripts/ready
+            initialDelaySeconds: 30
+            periodSeconds: 60
+            timeoutSeconds: 10
+            failureThreshold: 3
+            successThreshold: 1
+          env:
+            - name: ZK_DATA_DIR
+              value: "/var/lib/zookeeper"
+            - name: ZK_CONF_DIR
+              value: "/var/lib/zookeeper/conf"
+            - name: JMXAUTH
+              value: "false"
+            - name: JMXDISABLE
+              value: "true"
+            - name: JMXPORT
+              value: "1099"
+            - name: JMXSSL
+              value: "false"
+            - name: ZK_DATA_LOG_DIR
+              value: "/var/lib/zookeeper/log"
+            - name: ZK_REPLICAS
+              value: "3"
+            - name: ZK_SYNC_LIMIT
+              value: "10"
+            - name: ZK_TICK_TIME
+              value: "2000"
+            - name: ZOO_AUTOPURGE_PURGEINTERVAL
+              value: "12"
+            - name: ZOO_AUTOPURGE_SNAPRETAINCOUNT
+              value: "3"
+            - name: ZOO_INIT_LIMIT
+              value: "5"
+            - name: ZOO_MAX_CLIENT_CNXNS
+              value: "60"
+            - name: ZOO_PORT
+              value: "2181"
+            - name: ZOO_STANDALONE_ENABLED
+              value: "false"
+            - name: ZOO_TICK_TIME
+              value: "2000"
+            - name: ZK_HEAP_SIZE
+              value: "512M"
+            - name: ZOO_METRICS_PROVIDER_CLASS
+              value: "org.apache.zookeeper.metrics.prometheus.PrometheusMetricsProvider"
+            - name: ZOO_METRICS_PROVIDER_PORT
+              value: "7070"
+          resources:
+            {}
+          volumeMounts:
+            - name: datadir
+              mountPath: /var/lib/zookeeper
+            - name: config
+              mountPath: /config-scripts
+      volumes:
+        - name: config
+          configMap:
+            name: zk-{{ .Values.clusterId }}
+            defaultMode: 0555
+      securityContext:
+        runAsUser: 1000
+        fsGroup: 1000
+  volumeClaimTemplates:
+    - metadata:
+        namespace: {{ .Values.namespace }}
+        name: datadir
+        labels:
+          app: zk-{{ .Values.clusterId }}
+      spec:
+#        storageClassName: csi-cinder-high-speed
+        accessModes:
+          - {{ .Values.zkStorage.accessMode | quote }}
+        resources:
+          requests:
+            storage: {{ .Values.zkStorage.size | quote }}

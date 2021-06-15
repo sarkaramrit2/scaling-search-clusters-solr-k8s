@@ -1,0 +1,23 @@
+{{- if .Values }}
+  {{- if .Values.autoscaling.cpu }}
+    {{- if (eq true .Values.autoscaling.cpu) }}
+apiVersion: autoscaling/v2beta1
+kind: HorizontalPodAutoscaler
+metadata:
+  name: solr-{{ .Values.clusterId }}
+  namespace: {{ .Values.namespace }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: solr-{{ .Values.clusterId }}
+  minReplicas: {{ .Values.minNodes }}
+  maxReplicas: {{ .Values.maxNodes }}
+  metrics:
+    - resource:
+        name: cpu
+        targetAverageUtilization: {{ .Values.targetCpuUsage }}
+      type: Resource
+    {{- end}}
+  {{- end}}
+{{- end}}
